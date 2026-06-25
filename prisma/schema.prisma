@@ -1,0 +1,238 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+}
+
+model Customer {
+  id                  String            @id @default(cuid())
+  fullName            String
+  phone               String            @unique
+  email               String?
+  notes               String?
+  tag                 String            @default("normal")
+  totalAppointments   Int               @default(0)
+  completedCount      Int               @default(0)
+  cancelledCount      Int               @default(0)
+  lastVisitAt         DateTime?
+  createdAt           DateTime          @default(now())
+  mergedIntoCustomerId String?
+  mergedAt            DateTime?
+  appointments        Appointment[]
+  sales               Sale[]
+  payments            CustomerPayment[]
+}
+
+model Barber {
+  id             String          @id @default(cuid())
+  name           String
+  bio            String?
+  photoUrl       String?
+  specialty      String?
+  experienceYrs  Int             @default(0)
+  calendarColor  String          @default("#c9762c")
+  isActive       Boolean         @default(true)
+  workerType     String          @default("OWNER")
+  commissionRate Float           @default(0)
+  workingHours   WorkingHour[]
+  exceptions     DateException[]
+  appointments   Appointment[]
+  sales          Sale[]
+  createdAt      DateTime        @default(now())
+}
+
+model Service {
+  id              String        @id @default(cuid())
+  name            String
+  description     String?
+  durationMinutes Int
+  price           Float
+  isActive        Boolean       @default(true)
+  displayOrder    Int           @default(0)
+  category        String        @default("Diğer")
+  appointments    Appointment[]
+  sales           Sale[]
+  appointmentServices AppointmentService[]
+  saleItems       SaleItem[]
+  createdAt       DateTime      @default(now())
+}
+
+model WorkingHour {
+  id        String  @id @default(cuid())
+  barberId  String
+  barber    Barber  @relation(fields: [barberId], references: [id], onDelete: Cascade)
+  dayOfWeek Int
+  startTime String
+  endTime   String
+  isOff     Boolean @default(false)
+}
+
+model DateException {
+  id       String   @id @default(cuid())
+  barberId String
+  barber   Barber   @relation(fields: [barberId], references: [id], onDelete: Cascade)
+  date     DateTime
+  reason   String?
+}
+
+model Appointment {
+  id                String               @id @default(cuid())
+  barberId          String
+  barber            Barber               @relation(fields: [barberId], references: [id])
+  serviceId         String?
+  service           Service?             @relation(fields: [serviceId], references: [id])
+  customerId        String
+  customer          Customer             @relation(fields: [customerId], references: [id])
+  date              DateTime
+  startTime         String
+  endTime           String
+  status            String               @default("pending")
+  appointmentPrice  Float                @default(0)
+  notes             String?
+  reminderSent      Boolean              @default(false)
+  googleEventId     String?
+  verificationToken        String?              @unique
+  verifiedAt               DateTime?
+  verificationEmailSentAt  DateTime?
+  ipAddress                String?
+  userAgent                String?
+  riskScore                Int                  @default(0)
+  riskReasons              String?
+  createdAt                DateTime             @default(now())
+  notifications     Notification[]
+  sales             Sale[]
+  services          AppointmentService[]
+}
+
+model RateLimit {
+  id        String   @id @default(cuid())
+  key       String
+  action    String
+  createdAt DateTime @default(now())
+
+  @@index([key, action, createdAt])
+}
+
+model AppointmentService {
+  id              String      @id @default(cuid())
+  appointmentId   String
+  appointment     Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  serviceId       String?
+  service         Service?    @relation(fields: [serviceId], references: [id])
+  serviceName     String
+  category        String      @default("Diğer")
+  price           Float
+  durationMinutes Int
+  createdAt       DateTime    @default(now())
+}
+
+model Campaign {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  buttonText  String?
+  buttonLink  String?
+  priority    Int      @default(0)
+  startDate   DateTime
+  endDate     DateTime
+  isActive    Boolean  @default(true)
+  showOnHome  Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model Notification {
+  id            String      @id @default(cuid())
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  type          String
+  recipient     String
+  channel       String      @default("email")
+  status        String      @default("sent")
+  sentAt        DateTime    @default(now())
+}
+
+model Setting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+}
+
+model Sale {
+  id                   String            @id @default(cuid())
+  appointmentId        String?
+  appointment          Appointment?      @relation(fields: [appointmentId], references: [id])
+  customerId           String?
+  customer             Customer?         @relation(fields: [customerId], references: [id])
+  barberId             String
+  barber               Barber            @relation(fields: [barberId], references: [id])
+  serviceId            String?
+  service              Service?          @relation(fields: [serviceId], references: [id])
+  customerName         String
+  customerPhone        String
+  serviceName          String
+  barberName           String
+  listedPrice          Float             @default(0)
+  saleAmount           Float
+  paidAmount           Float             @default(0)
+  remainingAmount      Float             @default(0)
+  paymentMethod        String            @default("CASH")
+  saleStatus           String            @default("PAID")
+  barberWorkerType     String
+  barberCommissionRate Float             @default(0)
+  barberShare          Float             @default(0)
+  businessShare        Float             @default(0)
+  note                 String?
+  saleDate             DateTime          @default(now())
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  voidedAt             DateTime?
+  voidReason           String?
+  payments             CustomerPayment[]
+  items                SaleItem[]
+}
+
+model SaleItem {
+  id              String   @id @default(cuid())
+  saleId          String
+  sale            Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  serviceId       String?
+  service         Service? @relation(fields: [serviceId], references: [id])
+  serviceName     String
+  category        String   @default("Diğer")
+  price           Float
+  durationMinutes Int      @default(0)
+  createdAt       DateTime @default(now())
+}
+
+model CustomerPayment {
+  id            String    @id @default(cuid())
+  customerId    String?
+  customer      Customer? @relation(fields: [customerId], references: [id])
+  saleId        String?
+  sale          Sale?    @relation(fields: [saleId], references: [id])
+  amount        Float
+  paymentMethod String   @default("CASH")
+  note          String?
+  paymentDate   DateTime @default(now())
+  createdAt     DateTime @default(now())
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  amount      Float
+  category    String
+  description String?
+  expenseDate DateTime @default(now())
+  createdAt   DateTime @default(now())
+}

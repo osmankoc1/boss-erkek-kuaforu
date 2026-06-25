@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0a0a0a;
+  --foreground: #ffffff;
+  --brand-bg: #0a0a0a;
+  --brand-surface: #141414;
+  --brand-surface-2: #1e1e1e;
+  --brand-accent: #c9762c;
+  --brand-accent-light: #e8913a;
+  --brand-accent-glow: rgba(201,118,44,0.25);
+  --brand-text: #ffffff;
+  --brand-muted: #6b7280;
+  --brand-border: #2a2a2a;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-brand-bg: var(--brand-bg);
+  --color-brand-surface: var(--brand-surface);
+  --color-brand-surface-2: var(--brand-surface-2);
+  --color-brand-accent: var(--brand-accent);
+  --color-brand-accent-light: var(--brand-accent-light);
+  --color-brand-text: var(--brand-text);
+  --color-brand-muted: var(--brand-muted);
+  --color-brand-border: var(--brand-border);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--brand-border) transparent;
+}
+
+::selection {
+  background: var(--brand-accent);
+  color: #fff;
+}
