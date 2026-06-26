@@ -23,7 +23,10 @@ export async function POST(req: NextRequest) {
 
   revalidatePath("/");
   revalidatePath("/iletisim");
+  revalidatePath("/hizmetler");
+  revalidatePath("/ekibimiz");
   revalidatePath("/randevu");
+  revalidatePath("/randevu-sorgula");
 
   return Response.json({ ok: true });
 }

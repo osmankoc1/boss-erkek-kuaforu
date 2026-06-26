@@ -1,6 +1,46 @@
 import Link from "next/link";
+import { db } from "@/lib/db";
+import { getWorkingHoursText } from "@/lib/working-hours-text";
 
-export default function Footer() {
+export default async function Footer() {
+  const [settingsRows, hoursText] = await Promise.all([
+    db.setting.findMany(),
+    getWorkingHoursText(),
+  ]);
+  const s = Object.fromEntries(settingsRows.map((r) => [r.key, r.value]));
+
+  const businessName = s.business_name ?? "BOSS Erkek Kuaförü";
+  const phone = s.business_phone ?? "";
+  const address = s.business_address ?? "";
+  const instagram = s.instagram_url ?? "";
+  const facebook = s.facebook_url ?? "";
+
+  const contactItems: { icon: React.ReactNode; text: string }[] = [];
+
+  if (address) {
+    contactItems.push({
+      icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M15 11a3 3 0 11-6 0 3 3 0 016 0z" />,
+      text: address,
+    });
+  }
+  if (phone) {
+    contactItems.push({
+      icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />,
+      text: phone,
+    });
+  }
+  if (hoursText) {
+    contactItems.push({
+      icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />,
+      text: hoursText,
+    });
+  }
+
+  const socialLinks = [
+    instagram ? { label: "Instagram", href: instagram } : null,
+    facebook ? { label: "Facebook", href: facebook } : null,
+  ].filter(Boolean) as { label: string; href: string }[];
+
   return (
     <footer className="bg-[#0a0a0a] border-t border-[#141414]">
       {/* Main footer */}
@@ -16,16 +56,21 @@ export default function Footer() {
           <p className="text-[#6b7280] text-sm leading-relaxed max-w-xs">
             Premium erkek bakım stüdyosu. Profesyonel kadromuzla her ziyarette mükemmel bir deneyim sunuyoruz.
           </p>
-          <div className="flex gap-3 mt-6">
-            {["Instagram", "Facebook"].map((s) => (
-              <div
-                key={s}
-                className="px-4 py-1.5 border border-[#2a2a2a] hover:border-[#c9762c]/40 rounded text-xs text-[#6b7280] hover:text-[#c9762c] transition-all cursor-pointer"
-              >
-                {s}
-              </div>
-            ))}
-          </div>
+          {socialLinks.length > 0 && (
+            <div className="flex gap-3 mt-6">
+              {socialLinks.map(({ label, href }) => (
+                <a
+                  key={label}
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-1.5 border border-[#2a2a2a] hover:border-[#c9762c]/40 rounded text-xs text-[#6b7280] hover:text-[#c9762c] transition-all"
+                >
+                  {label}
+                </a>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Links */}
@@ -51,29 +96,20 @@ export default function Footer() {
         {/* Contact */}
         <div>
           <h3 className="text-xs font-bold tracking-[0.3em] text-[#9ca3af] uppercase mb-5">İletişim</h3>
-          <ul className="space-y-4">
-            {[
-              {
-                icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M15 11a3 3 0 11-6 0 3 3 0 016 0z" />,
-                text: "İstanbul, Türkiye",
-              },
-              {
-                icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />,
-                text: "+90 555 000 00 00",
-              },
-              {
-                icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />,
-                text: "Pzt–Cmt: 09:00–19:00",
-              },
-            ].map(({ icon, text }) => (
-              <li key={text} className="flex items-start gap-3">
-                <svg className="w-4 h-4 text-[#c9762c] mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  {icon}
-                </svg>
-                <span className="text-[#6b7280] text-sm">{text}</span>
-              </li>
-            ))}
-          </ul>
+          {contactItems.length > 0 ? (
+            <ul className="space-y-4">
+              {contactItems.map(({ icon, text }) => (
+                <li key={text} className="flex items-start gap-3">
+                  <svg className="w-4 h-4 text-[#c9762c] mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    {icon}
+                  </svg>
+                  <span className="text-[#6b7280] text-sm">{text}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-[#3a3a3a] text-xs">Admin panelinden iletişim bilgilerini ekleyin.</p>
+          )}
         </div>
       </div>
 
@@ -81,7 +117,7 @@ export default function Footer() {
       <div className="border-t border-[#141414]">
         <div className="max-w-7xl mx-auto px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span className="text-[#6b7280] text-xs">
-            © {new Date().getFullYear()} BOSS Erkek Kuaförü. Tüm hakları saklıdır.
+            © {new Date().getFullYear()} {businessName}. Tüm hakları saklıdır.
           </span>
           <span className="text-[#3a3a3a] text-xs">Premium Erkek Bakım Stüdyosu</span>
         </div>

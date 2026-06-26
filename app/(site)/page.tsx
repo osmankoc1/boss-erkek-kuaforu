@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { formatPrice } from "@/lib/utils";
+import { getWorkingHoursText } from "@/lib/working-hours-text";
 import AnimatedHero from "@/components/site/AnimatedHero";
 import { FadeIn, HoverLift } from "@/components/site/Animate";
 
 export default async function HomePage() {
-  const [services, barbers, campaigns, settingsRows] = await Promise.all([
+  const [services, barbers, campaigns, settingsRows, hoursText] = await Promise.all([
     db.service.findMany({ where: { isActive: true }, take: 4 }),
     db.barber.findMany({ where: { isActive: true }, take: 3 }),
     db.campaign.findMany({
@@ -18,6 +19,7 @@ export default async function HomePage() {
       orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
     }),
     db.setting.findMany(),
+    getWorkingHoursText(),
   ]);
   const settings = Object.fromEntries(settingsRows.map((s) => [s.key, s.value]));
 
@@ -239,7 +241,7 @@ export default async function HomePage() {
                 </svg>
               ),
               title: "Çalışma Saatleri",
-              desc: settings.business_hours ?? "Pazartesi–Cumartesi: 09:00–19:00",
+              desc: hoursText || "Pazartesi–Cumartesi: 09:00–19:00",
             },
             {
               icon: (
