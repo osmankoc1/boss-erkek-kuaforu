@@ -6,6 +6,7 @@ const FIELDS = [
   { key: "business_phone", label: "Telefon", section: "İşletme Bilgileri" },
   { key: "business_email", label: "E-posta", section: "İşletme Bilgileri" },
   { key: "business_address", label: "Adres", section: "İşletme Bilgileri" },
+  { key: "business_hours", label: "Çalışma Saatleri (görüntü)", section: "İşletme Bilgileri" },
   { key: "maps_link", label: "Google Maps Embed URL", section: "İşletme Bilgileri" },
   { key: "resend_from_email", label: "Gönderici E-posta (Resend)", section: "Bildirimler" },
   { key: "google_calendar_enabled", label: "Google Calendar Aktif (true/false)", section: "Google Calendar" },

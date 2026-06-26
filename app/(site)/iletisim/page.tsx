@@ -63,7 +63,7 @@ export default async function IletisimPage() {
                     d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 ),
                 label: "Çalışma Saatleri",
-                value: "Pazartesi–Cumartesi: 09:00–19:00",
+                value: settings.business_hours ?? "Pazartesi–Cumartesi: 09:00–19:00",
               },
             ].map(({ icon, label, value }) => (
               <div key={label} className="bg-[#141414] border border-[#2a2a2a] rounded-xl p-5 flex items-start gap-4 hover:border-[#c9762c]/20 transition-colors">

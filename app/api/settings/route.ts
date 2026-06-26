@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
 
@@ -19,6 +20,10 @@ export async function POST(req: NextRequest) {
       db.setting.upsert({ where: { key }, update: { value }, create: { key, value } })
     )
   );
+
+  revalidatePath("/");
+  revalidatePath("/iletisim");
+  revalidatePath("/randevu");
 
   return Response.json({ ok: true });
 }

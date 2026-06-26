@@ -5,7 +5,7 @@ import AnimatedHero from "@/components/site/AnimatedHero";
 import { FadeIn, HoverLift } from "@/components/site/Animate";
 
 export default async function HomePage() {
-  const [services, barbers, campaigns] = await Promise.all([
+  const [services, barbers, campaigns, settingsRows] = await Promise.all([
     db.service.findMany({ where: { isActive: true }, take: 4 }),
     db.barber.findMany({ where: { isActive: true }, take: 3 }),
     db.campaign.findMany({
@@ -17,7 +17,9 @@ export default async function HomePage() {
       },
       orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
     }),
+    db.setting.findMany(),
   ]);
+  const settings = Object.fromEntries(settingsRows.map((s) => [s.key, s.value]));
 
   return (
     <div className="bg-[#0a0a0a]">
@@ -237,7 +239,7 @@ export default async function HomePage() {
                 </svg>
               ),
               title: "Çalışma Saatleri",
-              desc: "Pazartesi–Cumartesi: 09:00–19:00",
+              desc: settings.business_hours ?? "Pazartesi–Cumartesi: 09:00–19:00",
             },
             {
               icon: (
@@ -247,7 +249,7 @@ export default async function HomePage() {
                 </svg>
               ),
               title: "Konum",
-              desc: "İstanbul, Türkiye",
+              desc: settings.business_address ?? "İstanbul, Türkiye",
             },
             {
               icon: (
@@ -256,7 +258,7 @@ export default async function HomePage() {
                 </svg>
               ),
               title: "Telefon",
-              desc: "+90 555 000 00 00",
+              desc: settings.business_phone ?? "+90 555 000 00 00",
             },
           ].map((item, i) => (
             <FadeIn key={item.title} delay={i * 0.08}>
