@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import SettingsForm from "./SettingsForm";
+import PasswordChangeForm from "./PasswordChangeForm";
 
 export const metadata = { title: "Ayarlar — BOSS Admin" };
 
@@ -12,7 +13,10 @@ export default async function AyarlarPage() {
         <h1 className="text-2xl font-black">Ayarlar</h1>
         <p className="text-[#6b7280] text-sm">İşletme bilgileri ve entegrasyonlar.</p>
       </div>
-      <SettingsForm settings={map} />
+      <div className="space-y-8">
+        <SettingsForm settings={map} />
+        <PasswordChangeForm />
+      </div>
     </div>
   );
 }
