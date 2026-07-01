@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
 import { calcShares, calcStatus, startOfDay, endOfDay } from "@/lib/sale";
+import { validatePhone, PHONE_ERROR } from "@/lib/phone";
 
 const saleItemSchema = z.object({
   serviceId: z.string().optional().nullable(),
@@ -92,6 +93,14 @@ export async function POST(req: NextRequest) {
 
   const snapshotServiceName = resolvedItems.map((i) => i.serviceName).join(", ") || data.serviceName || "";
   const snapshotListedPrice = resolvedItems.reduce((s, i) => s + i.price, 0) || data.listedPrice || 0;
+
+  // Telefon validasyonu (yeni müşteri oluştururken)
+  if (data.createCustomer && data.customerPhone) {
+    const phone = data.customerPhone.trim();
+    if (!validatePhone(phone)) {
+      return Response.json({ error: PHONE_ERROR }, { status: 400 });
+    }
+  }
 
   // Müşteri çözümleme
   let resolvedCustomerId = data.customerId ?? null;

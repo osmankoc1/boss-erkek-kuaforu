@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { sendNewBookingNotification, sendVerificationEmail } from "@/lib/mail";
-import { normalizePhone, validatePhone } from "@/lib/phone";
+import { validatePhone, PHONE_ERROR } from "@/lib/phone";
 import { calcRiskScore } from "@/lib/risk";
 
 const schema = z.object({
@@ -13,7 +13,7 @@ const schema = z.object({
   date: z.string().min(1),
   startTime: z.string().regex(/^\d{2}:\d{2}$/),
   customerName: z.string().min(2),
-  customerPhone: z.string().min(7),
+  customerPhone: z.string().min(10),
   customerEmail: z.string().email().optional().or(z.literal("")),
   notes: z.string().optional(),
   status: z.enum(["pending", "confirmed"]).optional().default("pending"),
@@ -32,7 +32,11 @@ export async function GET(req: NextRequest) {
 
   if (!phone) return Response.json({ error: "Telefon gerekli." }, { status: 400 });
 
-  const customer = await db.customer.findUnique({ where: { phone } });
+  if (!validatePhone(phone.trim())) {
+    return Response.json({ error: PHONE_ERROR }, { status: 400 });
+  }
+
+  const customer = await db.customer.findUnique({ where: { phone: phone.trim() } });
   if (!customer) return Response.json({ appointments: [] });
 
   const appointments = await db.appointment.findMany({
@@ -66,10 +70,10 @@ export async function POST(req: NextRequest) {
     return Response.json({ id: "fake" }, { status: 201 });
   }
 
-  // ── Telefon normalize + doğrulama ────────────────────────────────────────
-  customerPhone = normalizePhone(customerPhone);
+  // ── Telefon doğrulama ─────────────────────────────────────────────────────
+  customerPhone = customerPhone.trim();
   if (!validatePhone(customerPhone)) {
-    return Response.json({ error: "Geçersiz telefon numarası. Lütfen Türkiye numarası girin (05xx xxx xx xx)." }, { status: 400 });
+    return Response.json({ error: PHONE_ERROR }, { status: 400 });
   }
 
   // ── Hizmet listesini belirle ─────────────────────────────────────────────

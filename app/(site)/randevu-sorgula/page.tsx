@@ -4,6 +4,7 @@ import { formatDate, STATUS_LABELS } from "@/lib/utils";
 
 export default function RandevuSorgulaPage() {
   const [phone, setPhone] = useState("");
+  const [phoneError, setPhoneError] = useState("");
   const [loading, setLoading] = useState(false);
   const [appointments, setAppointments] = useState<any[]>([]);
   const [searched, setSearched] = useState(false);
@@ -12,6 +13,11 @@ export default function RandevuSorgulaPage() {
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     if (!phone.trim()) return;
+    if (!/^5[0-9]{9}$/.test(phone.trim())) {
+      setPhoneError("Telefon numarası 10 haneli olmalı ve başında 0 veya +90 olmadan yazılmalıdır. Örnek: 5551828629");
+      return;
+    }
+    setPhoneError("");
     setLoading(true);
     const res = await fetch(`/api/appointments?phone=${encodeURIComponent(phone.trim())}`);
     const data = await res.json();
@@ -59,9 +65,9 @@ export default function RandevuSorgulaPage() {
               <input
                 type="tel"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+90 555 000 00 00"
-                className="flex-1 bg-[#0f0f0f] border border-[#2a2a2a] focus:border-[#c9762c] rounded-md px-4 py-3 text-white placeholder-[#4b5563] outline-none transition-colors text-sm"
+                onChange={(e) => { setPhone(e.target.value); if (phoneError) setPhoneError(""); }}
+                placeholder="5551828629"
+                className={`flex-1 bg-[#0f0f0f] border rounded-md px-4 py-3 text-white placeholder-[#4b5563] outline-none transition-colors text-sm ${phoneError ? "border-red-500/50 focus:border-red-500" : "border-[#2a2a2a] focus:border-[#c9762c]"}`}
               />
               <button
                 type="submit"
@@ -71,6 +77,11 @@ export default function RandevuSorgulaPage() {
                 {loading ? "..." : "Sorgula"}
               </button>
             </div>
+            {phoneError ? (
+              <p className="mt-2 text-red-400 text-xs">{phoneError}</p>
+            ) : (
+              <p className="mt-2 text-[#4b5563] text-xs">Başında 0 veya +90 olmadan 10 haneli yazın. Örnek: 5551828629</p>
+            )}
           </form>
 
           {/* Sonuçlar */}

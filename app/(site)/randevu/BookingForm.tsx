@@ -67,6 +67,10 @@ export default function BookingForm({ services, barbers, defaultBarberId }: Book
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.customerName || !form.customerPhone) { setError("Ad soyad ve telefon zorunludur."); return; }
+    if (!/^5[0-9]{9}$/.test(form.customerPhone.trim())) {
+      setError("Telefon numarası 10 haneli olmalı ve başında 0 veya +90 olmadan yazılmalıdır. Örnek: 5551828629");
+      return;
+    }
     if (!form.customerEmail) { setError("Randevu doğrulama için e-posta adresi zorunludur."); return; }
     setLoading(true);
     setError("");
@@ -291,7 +295,7 @@ export default function BookingForm({ services, barbers, defaultBarberId }: Book
             {step === 3 && (
               <form onSubmit={handleSubmit} className="space-y-5">
                 <Field label="Ad Soyad *" value={form.customerName} onChange={(v) => setForm({ ...form, customerName: v })} placeholder="Ahmet Yılmaz" />
-                <Field label="Telefon *" value={form.customerPhone} onChange={(v) => setForm({ ...form, customerPhone: v })} placeholder="05xx xxx xx xx" type="tel" />
+                <Field label="Telefon *" value={form.customerPhone} onChange={(v) => setForm({ ...form, customerPhone: v })} placeholder="5551828629" type="tel" hint="Başında 0 veya +90 olmadan 10 haneli yazın." />
                 <Field label="E-posta * (doğrulama için)" value={form.customerEmail} onChange={(v) => setForm({ ...form, customerEmail: v })} placeholder="ahmet@ornek.com" type="email" />
                 {/* Honeypot — botlar doldurur, insanlar görmez */}
                 <input
@@ -571,8 +575,8 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Field({ label, value, onChange, placeholder, type = "text" }: {
-  label: string; value: string; onChange: (v: string) => void; placeholder: string; type?: string;
+function Field({ label, value, onChange, placeholder, type = "text", hint }: {
+  label: string; value: string; onChange: (v: string) => void; placeholder: string; type?: string; hint?: string;
 }) {
   return (
     <div>
@@ -584,6 +588,7 @@ function Field({ label, value, onChange, placeholder, type = "text" }: {
         placeholder={placeholder}
         className="w-full bg-[#111] border border-[#2a2a2a] focus:border-[#c9762c] rounded-lg px-4 py-3 text-white placeholder-[#4b5563] outline-none transition-colors text-sm"
       />
+      {hint && <p className="mt-1.5 text-[11px] text-[#4b5563]">{hint}</p>}
     </div>
   );
 }
