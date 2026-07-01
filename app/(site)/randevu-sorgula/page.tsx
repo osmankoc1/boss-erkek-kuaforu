@@ -14,7 +14,7 @@ export default function RandevuSorgulaPage() {
     e.preventDefault();
     if (!phone.trim()) return;
     if (!/^5[0-9]{9}$/.test(phone.trim())) {
-      setPhoneError("Telefon numarası 10 haneli olmalı ve başında 0 veya +90 olmadan yazılmalıdır. Örnek: 5551828629");
+      setPhoneError("Telefon numarası 10 haneli olmalı ve başında 0 veya +90 olmadan yazılmalıdır. Örnek: 5551234567");
       return;
     }
     setPhoneError("");
@@ -66,7 +66,7 @@ export default function RandevuSorgulaPage() {
                 type="tel"
                 value={phone}
                 onChange={(e) => { setPhone(e.target.value); if (phoneError) setPhoneError(""); }}
-                placeholder="5551828629"
+                placeholder="5551234567"
                 className={`flex-1 bg-[#0f0f0f] border rounded-md px-4 py-3 text-white placeholder-[#4b5563] outline-none transition-colors text-sm ${phoneError ? "border-red-500/50 focus:border-red-500" : "border-[#2a2a2a] focus:border-[#c9762c]"}`}
               />
               <button
@@ -80,7 +80,7 @@ export default function RandevuSorgulaPage() {
             {phoneError ? (
               <p className="mt-2 text-red-400 text-xs">{phoneError}</p>
             ) : (
-              <p className="mt-2 text-[#4b5563] text-xs">Başında 0 veya +90 olmadan 10 haneli yazın. Örnek: 5551828629</p>
+              <p className="mt-2 text-[#4b5563] text-xs">Başında 0 veya +90 olmadan 10 haneli yazın. Örnek: 5551234567</p>
             )}
           </form>
 

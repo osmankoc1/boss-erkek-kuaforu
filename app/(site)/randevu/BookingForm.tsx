@@ -68,7 +68,7 @@ export default function BookingForm({ services, barbers, defaultBarberId }: Book
     e.preventDefault();
     if (!form.customerName || !form.customerPhone) { setError("Ad soyad ve telefon zorunludur."); return; }
     if (!/^5[0-9]{9}$/.test(form.customerPhone.trim())) {
-      setError("Telefon numarası 10 haneli olmalı ve başında 0 veya +90 olmadan yazılmalıdır. Örnek: 5551828629");
+      setError("Telefon numarası 10 haneli olmalı ve başında 0 veya +90 olmadan yazılmalıdır. Örnek: 5551234567");
       return;
     }
     if (!form.customerEmail) { setError("Randevu doğrulama için e-posta adresi zorunludur."); return; }
@@ -295,7 +295,7 @@ export default function BookingForm({ services, barbers, defaultBarberId }: Book
             {step === 3 && (
               <form onSubmit={handleSubmit} className="space-y-5">
                 <Field label="Ad Soyad *" value={form.customerName} onChange={(v) => setForm({ ...form, customerName: v })} placeholder="Ahmet Yılmaz" />
-                <Field label="Telefon *" value={form.customerPhone} onChange={(v) => setForm({ ...form, customerPhone: v })} placeholder="5551828629" type="tel" hint="Başında 0 veya +90 olmadan 10 haneli yazın." />
+                <Field label="Telefon *" value={form.customerPhone} onChange={(v) => setForm({ ...form, customerPhone: v })} placeholder="5551234567" type="tel" hint="Başında 0 veya +90 olmadan 10 haneli yazın." />
                 <Field label="E-posta * (doğrulama için)" value={form.customerEmail} onChange={(v) => setForm({ ...form, customerEmail: v })} placeholder="ahmet@ornek.com" type="email" />
                 {/* Honeypot — botlar doldurur, insanlar görmez */}
                 <input

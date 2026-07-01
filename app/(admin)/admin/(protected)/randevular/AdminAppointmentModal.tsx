@@ -215,7 +215,7 @@ export default function AdminAppointmentModal({ barbers, services, defaultDate, 
                 <div className="grid grid-cols-2 gap-2">
                   <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Ad Soyad *"
                     className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-md px-3 py-2 text-[13px] text-white placeholder-[#5a5a5a] focus:outline-none focus:border-[#c9762c]/50" />
-                  <input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} placeholder="5551828629 *"
+                  <input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} placeholder="5551234567 *"
                     className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-md px-3 py-2 text-[13px] text-white placeholder-[#5a5a5a] focus:outline-none focus:border-[#c9762c]/50" />
                 </div>
                 <p className="text-[11px] text-[#6b7280]">Aynı telefon varsa mevcut müşteriye bağlanır.</p>
@@ -226,7 +226,7 @@ export default function AdminAppointmentModal({ barbers, services, defaultDate, 
               <div className="grid grid-cols-2 gap-2">
                 <input value={manualName} onChange={(e) => setManualName(e.target.value)} placeholder="Ad Soyad *"
                   className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-md px-3 py-2 text-[13px] text-white placeholder-[#5a5a5a] focus:outline-none focus:border-[#c9762c]/50" />
-                <input value={manualPhone} onChange={(e) => setManualPhone(e.target.value)} placeholder="5551828629 *"
+                <input value={manualPhone} onChange={(e) => setManualPhone(e.target.value)} placeholder="5551234567 *"
                   className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-md px-3 py-2 text-[13px] text-white placeholder-[#5a5a5a] focus:outline-none focus:border-[#c9762c]/50" />
               </div>
             )}
