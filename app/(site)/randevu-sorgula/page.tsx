@@ -9,6 +9,7 @@ export default function RandevuSorgulaPage() {
   const [appointments, setAppointments] = useState<any[]>([]);
   const [searched, setSearched] = useState(false);
   const [cancelLoading, setCancelLoading] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState("");
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -18,6 +19,7 @@ export default function RandevuSorgulaPage() {
       return;
     }
     setPhoneError("");
+    setCancelError("");
     setLoading(true);
     const res = await fetch(`/api/appointments?phone=${encodeURIComponent(phone.trim())}`);
     const data = await res.json();
@@ -28,14 +30,31 @@ export default function RandevuSorgulaPage() {
 
   async function handleCancel(id: string) {
     if (!confirm("Randevuyu iptal etmek istediğinize emin misiniz?")) return;
+    setCancelError("");
     setCancelLoading(id);
-    await fetch(`/api/appointments/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "cancelled" }),
-    });
-    setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, status: "cancelled" } : a)));
-    setCancelLoading(null);
+    try {
+      // Sunucu, randevu sahipliğini telefon + randevu kodu ile doğrular.
+      // Randevu kodu, onay sayfasında gösterilen kodun aynısıdır.
+      const res = await fetch(`/api/appointments/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: "cancelled",
+          phone: phone.trim(),
+          code: id.slice(-8).toUpperCase(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCancelError(data.error ?? "Randevu iptal edilemedi.");
+        return;
+      }
+      setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, status: "cancelled" } : a)));
+    } catch {
+      setCancelError("Bağlantı hatası. Lütfen tekrar deneyin.");
+    } finally {
+      setCancelLoading(null);
+    }
   }
 
   return (
@@ -83,6 +102,16 @@ export default function RandevuSorgulaPage() {
               <p className="mt-2 text-[#4b5563] text-xs">Başında 0 veya +90 olmadan 10 haneli yazın. Örnek: 5551234567</p>
             )}
           </form>
+
+          {/* İptal hatası */}
+          {cancelError && (
+            <div className="mb-4 flex items-start gap-2.5 p-3.5 bg-red-500/8 border border-red-500/20 text-red-400 rounded-lg text-sm">
+              <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              {cancelError}
+            </div>
+          )}
 
           {/* Sonuçlar */}
           {searched && (

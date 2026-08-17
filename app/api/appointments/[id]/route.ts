@@ -1,53 +1,173 @@
 import type { NextRequest } from "next/server";
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { sendConfirmationEmail, sendCancellationEmail } from "@/lib/mail";
 
+/**
+ * Randevu durum geçiş makinesi.
+ *
+ * Burada olmayan her geçiş yasaktır. Özellikle:
+ * - `completed` uçtur: kasa kaydı oluşmuş olabilir, iptali para tutarsızlığı
+ *   yaratır. Yanlış satış için kasa tarafındaki void akışı kullanılmalıdır.
+ * - `cancelled` uçtur: geri alınmaz. Müşteri yeniden randevu almalıdır —
+ *   böylece slot doğrulaması (Faz 1 · Sıra 5–8) yeniden çalışır.
+ */
+const ALLOWED_TRANSITIONS: Record<string, readonly string[]> = {
+  pending_verification: ["cancelled"],
+  pending: ["confirmed", "cancelled"],
+  confirmed: ["completed", "cancelled"],
+  completed: [],
+  cancelled: [],
+};
+
+/** Oturumu olmayan (public) çağıranın yapabileceği tek geçiş. */
+const PUBLIC_ALLOWED_STATUS = "cancelled";
+
+const patchSchema = z.object({
+  status: z.enum(["confirmed", "cancelled", "completed"]),
+  /** Public iptalde zorunlu: randevu sahibinin telefonu. */
+  phone: z.string().optional(),
+  /** Public iptalde zorunlu: onay sayfasındaki randevu kodu (id'nin son 8 hanesi). */
+  code: z.string().optional(),
+});
+
+/** Randevu kodu = cuid'in son 8 karakteri. Onay sayfasında müşteriye gösterilir. */
+function appointmentCode(id: string): string {
+  return id.slice(-8).toLowerCase();
+}
+
+/** Public iptal denemeleri için kaba kuvvet koruması. */
+async function isRateLimited(ip: string): Promise<boolean> {
+  const cutoff = new Date(Date.now() - 10 * 60 * 1000);
+  const count = await db.rateLimit.count({
+    where: { key: `cancel-ip:${ip}`, action: "cancel", createdAt: { gte: cutoff } },
+  });
+  return count >= 10;
+}
+
 export async function PATCH(req: NextRequest, ctx: RouteContext<"/api/appointments/[id]">) {
   const { id } = await ctx.params;
-  const body = await req.json();
-  const { status } = body;
 
-  if (!["confirmed", "cancelled", "completed"].includes(status)) {
+  const body = await req.json().catch(() => null);
+  const parsed = patchSchema.safeParse(body);
+  if (!parsed.success) {
     return Response.json({ error: "Geçersiz durum." }, { status: 400 });
   }
-
-  // pending_verification → sadece cancelled geçişine izin ver (session gerekmez)
-  const existing = await db.appointment.findUnique({ where: { id }, select: { status: true } });
-  if (existing?.status === "pending_verification" && status !== "cancelled") {
-    return Response.json({ error: "E-posta doğrulanmamış randevu onaylanamaz." }, { status: 400 });
-  }
+  const { status, phone, code } = parsed.data;
 
   const session = await getSession();
   const isAdmin = !!session?.userId;
 
-  if (!isAdmin && status !== "cancelled") {
-    return Response.json({ error: "Yetkisiz." }, { status: 401 });
+  const appt = await db.appointment.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      status: true,
+      customerId: true,
+      customer: { select: { phone: true } },
+    },
+  });
+  if (!appt) {
+    return Response.json({ error: "Randevu bulunamadı." }, { status: 404 });
   }
 
-  const appt = await db.appointment.update({
-    where: { id },
-    data: { status },
-    include: { customer: true, barber: true, service: true },
+  // ── Yetkilendirme ─────────────────────────────────────────────────────────
+  if (!isAdmin) {
+    // Public çağıran yalnızca iptal edebilir; onaylama/tamamlama admin işidir.
+    if (status !== PUBLIC_ALLOWED_STATUS) {
+      return Response.json({ error: "Yetkisiz." }, { status: 401 });
+    }
+
+    const ip =
+      req.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
+      req.headers.get("x-real-ip") ??
+      "unknown";
+
+    if (await isRateLimited(ip)) {
+      return Response.json(
+        { error: "Çok fazla deneme. Lütfen 10 dakika sonra tekrar deneyin." },
+        { status: 429 }
+      );
+    }
+    await db.rateLimit.create({ data: { key: `cancel-ip:${ip}`, action: "cancel" } });
+
+    // Randevu sahipliği: telefon + randevu kodu birlikte doğrulanır.
+    // Yalnızca randevu ID'sini bilen biri (kod ID'den türediği için onu da
+    // bilir) telefonu bilmeden iptal edemez.
+    const phoneOk = !!phone && phone.trim() === appt.customer.phone;
+    const codeOk = !!code && code.trim().toLowerCase() === appointmentCode(appt.id);
+
+    if (!phoneOk || !codeOk) {
+      return Response.json(
+        { error: "Randevu doğrulaması başarısız. Telefon numaranızı ve randevu kodunu kontrol edin." },
+        { status: 401 }
+      );
+    }
+  }
+
+  // ── Durum geçişi geçerli mi ───────────────────────────────────────────────
+  const allowed = ALLOWED_TRANSITIONS[appt.status] ?? [];
+  if (!allowed.includes(status)) {
+    const alreadyThere = appt.status === status;
+    return Response.json(
+      {
+        error: alreadyThere
+          ? `Bu randevu zaten "${status}" durumunda.`
+          : `"${appt.status}" durumundaki bir randevu "${status}" yapılamaz.`,
+        code: "INVALID_TRANSITION",
+        currentStatus: appt.status,
+      },
+      { status: 409 }
+    );
+  }
+
+  // ── Geçişi uygula ─────────────────────────────────────────────────────────
+  // Koşullu update: yalnızca durum hâlâ okuduğumuz değerdeyse yazar. Aynı anda
+  // gelen ikinci bir istek 0 satır günceller ve hiçbir yan etki üretmez —
+  // sayaçlar bir kez değişir, e-posta bir kez gider.
+  const result = await db.$transaction(async (tx) => {
+    const updated = await tx.appointment.updateMany({
+      where: { id, status: appt.status },
+      data: { status },
+    });
+    if (updated.count === 0) return { applied: false as const };
+
+    if (status === "cancelled") {
+      await tx.customer.update({
+        where: { id: appt.customerId },
+        data: { cancelledCount: { increment: 1 } },
+      });
+    } else if (status === "completed") {
+      await tx.customer.update({
+        where: { id: appt.customerId },
+        data: { completedCount: { increment: 1 }, lastVisitAt: new Date() },
+      });
+    }
+
+    return { applied: true as const };
   });
 
-  if (status === "cancelled") {
-    await db.customer.update({
-      where: { id: appt.customerId },
-      data: { cancelledCount: { increment: 1 } },
-    });
-    try { await sendCancellationEmail(appt); } catch {}
+  if (!result.applied) {
+    // Yarışı kaybettik: başka bir istek durumu bu arada değiştirdi.
+    return Response.json(
+      { error: "Randevu durumu bu sırada değişti. Lütfen sayfayı yenileyin.", code: "INVALID_TRANSITION" },
+      { status: 409 }
+    );
   }
 
-  if (status === "confirmed") {
-    try { await sendConfirmationEmail(appt); } catch {}
-  }
-
-  if (status === "completed") {
-    await db.customer.update({
-      where: { id: appt.customerId },
-      data: { completedCount: { increment: 1 }, lastVisitAt: new Date() },
+  // ── E-posta (transaction dışında, yalnızca gerçek geçişte) ────────────────
+  if (status === "cancelled" || status === "confirmed") {
+    const full = await db.appointment.findUnique({
+      where: { id },
+      include: { customer: true, barber: true, service: true },
     });
+    if (full) {
+      try {
+        if (status === "cancelled") await sendCancellationEmail(full);
+        else await sendConfirmationEmail(full);
+      } catch {}
+    }
   }
 
   return Response.json({ ok: true });
