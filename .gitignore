@@ -42,6 +42,9 @@ dev_server.log
 # vercel
 .vercel
 
+# claude code
+.claude/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
