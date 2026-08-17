@@ -5,6 +5,21 @@ import { getSession } from "@/lib/session";
 import { sendNewBookingNotification, sendVerificationEmail } from "@/lib/mail";
 import { validatePhone, PHONE_ERROR } from "@/lib/phone";
 import { calcRiskScore } from "@/lib/risk";
+import { validateBookingSlot } from "@/lib/booking-guard";
+import type { BookingIssueCode } from "@/lib/booking-rules";
+
+/**
+ * Admin'in bilinçli olarak (force ile) geçebileceği doğrulama hataları.
+ * Dükkânda gerçek hayatta üst üste randevu verme veya mesai dışı müşteri
+ * alma ihtiyacı olur; sistem admin'i kilitlememeli, yalnızca uyarmalı.
+ * Veri bütünlüğüne dair hatalar (berber yok/pasif, geçersiz girdi) geçilemez.
+ */
+const ADMIN_OVERRIDABLE_CODES: ReadonlySet<BookingIssueCode> = new Set([
+  "SLOT_TAKEN",
+  "OUTSIDE_WORKING_HOURS",
+  "DAY_OFF",
+  "DATE_EXCEPTION",
+]);
 
 const schema = z.object({
   serviceId: z.string().optional(),
@@ -165,6 +180,42 @@ export async function POST(req: NextRequest) {
 
     finalStatus = "pending_verification";
     verificationToken = crypto.randomUUID();
+  }
+
+  // ── Slot doğrulama (sunucu tarafı) ───────────────────────────────────────
+  // Tarayıcıya güvenilmez. Çalışma saati, kapalı gün, izin, geçmiş tarih/saat
+  // ve slot doluluğu burada yeniden kontrol edilir; doğrudan API'ye atılan
+  // istekler de bu kontrolden geçmek zorundadır.
+  //
+  // Müşteri kaydı oluşturulmadan ÖNCE çalışır — geçersiz bir istek arkasında
+  // yetim müşteri kaydı bırakmaz.
+  //
+  // NOT: Eşzamanlılık koruması (advisory lock) bu adımda yoktur; iki istek
+  // aynı anda gelirse ikisi de "boş" görebilir. Bkz. Faz 1 · Sıra 8.
+  const slotCheck = await validateBookingSlot({
+    barberId,
+    date: appointmentDate,
+    startTime,
+    durationMinutes: totalDuration,
+    // Admin geçmişe kayıt girebilir (dün gelen müşteriyi sonradan işlemek gibi).
+    allowPast: isAdmin,
+  });
+
+  if (!slotCheck.ok) {
+    const adminOverride =
+      isAdmin && body.force === true && ADMIN_OVERRIDABLE_CODES.has(slotCheck.code);
+
+    if (!adminOverride) {
+      return Response.json(
+        {
+          error: slotCheck.message,
+          code: slotCheck.code,
+          // Admin arayüzü "yine de oluştur" onayını buna göre gösterir.
+          overridable: isAdmin && ADMIN_OVERRIDABLE_CODES.has(slotCheck.code),
+        },
+        { status: 409 }
+      );
+    }
   }
 
   // ── Müşteri bul veya oluştur ─────────────────────────────────────────────

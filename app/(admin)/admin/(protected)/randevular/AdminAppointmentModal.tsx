@@ -100,19 +100,35 @@ export default function AdminAppointmentModal({ barbers, services, defaultDate, 
 
     setLoading(true);
     try {
-      const res = await fetch("/api/appointments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          serviceIds: selectedItems.map((i) => i.serviceId),
-          totalDuration,
-          barberId, date, startTime,
-          customerName, customerPhone,
-          notes: notes || undefined,
-          status: "confirmed",
-        }),
-      });
-      const data = await res.json();
+      const send = (force: boolean) =>
+        fetch("/api/appointments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            serviceIds: selectedItems.map((i) => i.serviceId),
+            totalDuration,
+            barberId, date, startTime,
+            customerName, customerPhone,
+            notes: notes || undefined,
+            status: "confirmed",
+            ...(force ? { force: true } : {}),
+          }),
+        });
+
+      let res = await send(false);
+      let data = await res.json();
+
+      // Sunucu slot doğrulamasında takıldıysa (dolu saat, mesai dışı, izinli
+      // gün) admin bilinçli olarak devam edebilir — sistem uyarır, kilitlemez.
+      if (!res.ok && res.status === 409 && data.overridable) {
+        if (!confirm(`${data.error}\n\nYine de bu randevuyu oluşturmak istiyor musunuz?`)) {
+          setError(data.error);
+          return;
+        }
+        res = await send(true);
+        data = await res.json();
+      }
+
       if (!res.ok) { setError(data.error ?? "Hata oluştu."); return; }
       onSaved();
     } catch {
