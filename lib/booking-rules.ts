@@ -123,6 +123,31 @@ export function slotInstant(dayStart: Date, startMinutes: number): Date {
   return new Date(dayStart.getTime() + startMinutes * 60_000);
 }
 
+/**
+ * Bir gün için gösterilebilecek en erken slot başlangıcını (gün içi dakika)
+ * döndürür.
+ *
+ *   null → gün tamamen geçmişte, hiç slot gösterilmemeli
+ *   0    → gelecekteki bir gün, filtre uygulanmaz
+ *   N    → bugün; N'den önce başlayan slotlar elenir
+ *
+ * Karşılaştırma yerel saat dilimine göre yapılır; sunucunun
+ * TZ=Europe/Istanbul olarak çalıştığı varsayılır (bkz. Faz 2 · saat dilimi).
+ *
+ * Sınır davranışı `evaluateBookingSlot`'un IN_PAST kontrolüyle aynıdır:
+ * tam şu anda başlayan slot hâlâ geçerlidir.
+ */
+export function resolveEarliestStartMinutes(params: { dayStart: Date; now: Date }): number | null {
+  const { dayStart, now } = params;
+  if (Number.isNaN(dayStart.getTime()) || Number.isNaN(now.getTime())) return null;
+
+  const todayStart = startOfLocalDay(now);
+  if (dayStart.getTime() < todayStart.getTime()) return null;
+  if (dayStart.getTime() > todayStart.getTime()) return 0;
+
+  return Math.floor((now.getTime() - todayStart.getTime()) / 60_000);
+}
+
 // ── Slot listesi üretimi ─────────────────────────────────────────────────────
 
 /**

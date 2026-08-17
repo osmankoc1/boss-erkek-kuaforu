@@ -11,6 +11,7 @@ import {
   buildSlots,
   evaluateBookingSlot,
   rangesOverlap,
+  resolveEarliestStartMinutes,
   timeToMinutes,
   type BookingContext,
   type BookingIssueCode,
@@ -416,6 +417,125 @@ for (let i = 0; i < FUZZ_RUNS; i++) {
   if (JSON.stringify(legacy) !== JSON.stringify(modern)) fuzzMismatch++;
 }
 check(`Fuzz karsilastirmasi: ${FUZZ_RUNS} rastgele senaryoda fark yok`, fuzzMismatch === 0, `${fuzzMismatch} uyusmazlik`);
+
+// ── TEST 9 — Geçmiş saat filtresi (Faz 1 · Sıra 6) ───────────────────────────
+
+group("TEST 9 — Gecmis saat filtresi");
+
+/** getAvailableSlots'un veritabani disi mantiginin birebir esdegeri. */
+function slotsForDay(
+  dayStart: Date,
+  now: Date,
+  window: [string, string],
+  durationMinutes: number,
+  busy: { startTime: string; endTime: string }[] = []
+): string[] {
+  const earliest = resolveEarliestStartMinutes({ dayStart, now });
+  if (earliest === null) return [];
+  return buildSlots({
+    windowStartMinutes: timeToMinutes(window[0])!,
+    windowEndMinutes: timeToMinutes(window[1])!,
+    durationMinutes,
+    busy: busy.map((a) => ({
+      startMinutes: timeToMinutes(a.startTime)!,
+      endMinutes: timeToMinutes(a.endTime)!,
+    })),
+    minStartMinutes: earliest,
+  });
+}
+
+const YESTERDAY = new Date(2026, 8, 14, 0, 0, 0, 0);
+const TOMORROW = new Date(2026, 8, 16, 0, 0, 0, 0);
+const WORKDAY: [string, string] = ["09:00", "19:00"];
+
+// resolveEarliestStartMinutes birim testleri
+check(
+  "resolveEarliestStartMinutes: gecmis gun -> null",
+  resolveEarliestStartMinutes({ dayStart: YESTERDAY, now: new Date(2026, 8, 15, 10, 0) }) === null
+);
+check(
+  "resolveEarliestStartMinutes: gelecek gun -> 0",
+  resolveEarliestStartMinutes({ dayStart: TOMORROW, now: new Date(2026, 8, 15, 10, 0) }) === 0
+);
+check(
+  "resolveEarliestStartMinutes: bugun 14:15 -> 855",
+  resolveEarliestStartMinutes({ dayStart: DAY, now: new Date(2026, 8, 15, 14, 15) }) === 855
+);
+check(
+  "resolveEarliestStartMinutes: bugun gece yarisi -> 0",
+  resolveEarliestStartMinutes({ dayStart: DAY, now: new Date(2026, 8, 15, 0, 0) }) === 0
+);
+
+// Bugün / geçmiş saat
+const todayAt1415 = slotsForDay(DAY, new Date(2026, 8, 15, 14, 15), WORKDAY, 30);
+check("Bugun 14:15 iken 09:00 slotu GOSTERILMEZ", !todayAt1415.includes("09:00"));
+check("Bugun 14:15 iken 14:00 slotu GOSTERILMEZ", !todayAt1415.includes("14:00"));
+check("Bugun 14:15 iken ilk slot 14:30", todayAt1415[0] === "14:30", `gelen=${todayAt1415[0]}`);
+check("Bugun 14:15 iken son slot 18:30 (kapanis korunur)", todayAt1415[todayAt1415.length - 1] === "18:30");
+
+// Bugün / gelecek saat
+check("Bugun 14:15 iken 15:00 slotu GOSTERILIR", todayAt1415.includes("15:00"));
+check("Bugun 14:15 iken 18:30 slotu GOSTERILIR", todayAt1415.includes("18:30"));
+
+// Sınır: tam şu anda başlayan slot
+const todayAt1400 = slotsForDay(DAY, new Date(2026, 8, 15, 14, 0), WORKDAY, 30);
+check("Bugun tam 14:00 iken 14:00 slotu GOSTERILIR (sinir)", todayAt1400.includes("14:00"));
+check("Bugun tam 14:00 iken 13:30 slotu GOSTERILMEZ", !todayAt1400.includes("13:30"));
+
+// Yarın — filtre uygulanmamalı
+const tomorrowSlots = slotsForDay(TOMORROW, new Date(2026, 8, 15, 14, 15), WORKDAY, 30);
+const unfilteredSlots = buildSlots({
+  windowStartMinutes: 9 * 60,
+  windowEndMinutes: 19 * 60,
+  durationMinutes: 30,
+  busy: [],
+});
+check("Yarin icin ilk slot 09:00", tomorrowSlots[0] === "09:00");
+check(
+  "Yarin cikitisi filtresiz cikti ile BIREBIR AYNI (regresyon)",
+  JSON.stringify(tomorrowSlots) === JSON.stringify(unfilteredSlots),
+  `yarin=${tomorrowSlots.length} filtresiz=${unfilteredSlots.length}`
+);
+
+// Geçmiş gün
+check(
+  "Dun icin hic slot donmez",
+  slotsForDay(YESTERDAY, new Date(2026, 8, 15, 10, 0), WORKDAY, 30).length === 0
+);
+
+// Bugün, kapanıştan sonra
+check(
+  "Bugun 20:00 iken (kapanis sonrasi) hic slot donmez",
+  slotsForDay(DAY, new Date(2026, 8, 15, 20, 0), WORKDAY, 30).length === 0
+);
+
+// Çalışma saati sınırı geçmiş filtresiyle bozulmuyor
+const todayAt1800 = slotsForDay(DAY, new Date(2026, 8, 15, 18, 0), WORKDAY, 30);
+check("Bugun 18:00 iken kalan slotlar tam olarak 18:00 ve 18:30", JSON.stringify(todayAt1800) === JSON.stringify(["18:00", "18:30"]), `gelen=${JSON.stringify(todayAt1800)}`);
+check(
+  "Bugun 18:00 iken 60dk hizmet icin yalnizca 18:00 kalir",
+  JSON.stringify(slotsForDay(DAY, new Date(2026, 8, 15, 18, 0), WORKDAY, 60)) === JSON.stringify(["18:00"])
+);
+
+// Geçmiş filtresi çakışma filtresini bozmuyor
+const todayWithBusy = slotsForDay(DAY, new Date(2026, 8, 15, 10, 0), WORKDAY, 30, [
+  { startTime: "14:00", endTime: "14:30" },
+]);
+check("Gecmis filtresi + cakisma birlikte: 09:00 elenir", !todayWithBusy.includes("09:00"));
+check("Gecmis filtresi + cakisma birlikte: 14:00 (dolu) elenir", !todayWithBusy.includes("14:00"));
+check("Gecmis filtresi + cakisma birlikte: 10:00 kalir", todayWithBusy.includes("10:00"));
+check("Gecmis filtresi + cakisma birlikte: 14:30 kalir", todayWithBusy.includes("14:30"));
+
+// evaluateBookingSlot ile sinir davranisi tutarli mi
+{
+  const guardAtExactNow = evaluateBookingSlot(
+    ctx({ startTime: "14:00", now: new Date(2026, 8, 15, 14, 0) })
+  );
+  check(
+    "Guard ve availability ayni sinir davranisini paylasir (tam su an kabul)",
+    guardAtExactNow.ok === true && todayAt1400.includes("14:00")
+  );
+}
 
 // ── Sonuç ────────────────────────────────────────────────────────────────────
 

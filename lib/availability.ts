@@ -2,6 +2,7 @@ import { db } from "./db";
 import {
   BLOCKING_STATUSES,
   buildSlots,
+  resolveEarliestStartMinutes,
   startOfLocalDay,
   startOfNextLocalDay,
   timeToMinutes,
@@ -15,16 +16,25 @@ import {
  * veriyi toplayıp o kurallara verir. Tek bir slotu doğrulamak için
  * `validateBookingSlot` (lib/booking-guard.ts) kullanılır — ikisi de aynı
  * kural setini paylaşır.
+ *
+ * Bugün için geçmiş saatler listelenmez; gelecek günler etkilenmez.
  */
 export async function getAvailableSlots(
   barberId: string,
   dateStr: string,
-  durationMinutes: number
+  durationMinutes: number,
+  /** Test edilebilirlik için; verilmezse şimdiki zaman. */
+  now: Date = new Date()
 ): Promise<string[]> {
   const date = new Date(dateStr);
   if (Number.isNaN(date.getTime())) return [];
 
   const dayStart = startOfLocalDay(date);
+
+  // Gün tamamen geçmişteyse veritabanına hiç gitmeye gerek yok.
+  const earliestStartMinutes = resolveEarliestStartMinutes({ dayStart, now });
+  if (earliestStartMinutes === null) return [];
+
   const dayEnd = startOfNextLocalDay(date);
   const dayOfWeek = dayStart.getDay();
 
@@ -58,5 +68,6 @@ export async function getAvailableSlots(
     windowEndMinutes,
     durationMinutes,
     busy: toMinuteRanges(existing),
+    minStartMinutes: earliestStartMinutes,
   });
 }
