@@ -5,7 +5,7 @@ import { getSession } from "@/lib/session";
 import { sendNewBookingNotification, sendVerificationEmail } from "@/lib/mail";
 import { validatePhone, PHONE_ERROR } from "@/lib/phone";
 import { calcRiskScore } from "@/lib/risk";
-import { validateBookingSlot } from "@/lib/booking-guard";
+import { acquireSlotLock, validateBookingSlot } from "@/lib/booking-guard";
 import type { BookingIssueCode } from "@/lib/booking-rules";
 
 /**
@@ -182,87 +182,112 @@ export async function POST(req: NextRequest) {
     verificationToken = crypto.randomUUID();
   }
 
-  // ── Slot doğrulama (sunucu tarafı) ───────────────────────────────────────
+  // ── Doğrulama + oluşturma (tek transaction, advisory lock altında) ───────
   // Tarayıcıya güvenilmez. Çalışma saati, kapalı gün, izin, geçmiş tarih/saat
   // ve slot doluluğu burada yeniden kontrol edilir; doğrudan API'ye atılan
   // istekler de bu kontrolden geçmek zorundadır.
   //
-  // Müşteri kaydı oluşturulmadan ÖNCE çalışır — geçersiz bir istek arkasında
-  // yetim müşteri kaydı bırakmaz.
+  // Eşzamanlılık: berber + gün için `pg_advisory_xact_lock` alınır. Aynı
+  // berberin aynı günü için gelen istekler sıraya girer, böylece "kontrol et
+  // → yaz" arasındaki yarış penceresi kapanır. Kilit transaction bitince
+  // (commit ya da rollback) PostgreSQL tarafından otomatik bırakılır.
   //
-  // NOT: Eşzamanlılık koruması (advisory lock) bu adımda yoktur; iki istek
-  // aynı anda gelirse ikisi de "boş" görebilir. Bkz. Faz 1 · Sıra 8.
-  const slotCheck = await validateBookingSlot({
-    barberId,
-    date: appointmentDate,
-    startTime,
-    durationMinutes: totalDuration,
-    // Admin geçmişe kayıt girebilir (dün gelen müşteriyi sonradan işlemek gibi).
-    allowPast: isAdmin,
-  });
+  // Doğrulama, müşteri kaydı oluşturulmadan ÖNCE çalışır — geçersiz bir istek
+  // arkasında yetim müşteri kaydı bırakmaz.
+  //
+  // E-posta gönderimi bilinçli olarak transaction DIŞINDA tutulur; kilit
+  // süresini ağ gecikmesi kadar uzatmamak için.
+  const outcome = await db.$transaction(async (tx) => {
+    await acquireSlotLock(tx, barberId, appointmentDate);
 
-  if (!slotCheck.ok) {
-    const adminOverride =
-      isAdmin && body.force === true && ADMIN_OVERRIDABLE_CODES.has(slotCheck.code);
-
-    if (!adminOverride) {
-      return Response.json(
-        {
-          error: slotCheck.message,
-          code: slotCheck.code,
-          // Admin arayüzü "yine de oluştur" onayını buna göre gösterir.
-          overridable: isAdmin && ADMIN_OVERRIDABLE_CODES.has(slotCheck.code),
-        },
-        { status: 409 }
-      );
-    }
-  }
-
-  // ── Müşteri bul veya oluştur ─────────────────────────────────────────────
-  let customer = await db.customer.findUnique({ where: { phone: customerPhone } });
-  if (!customer) {
-    customer = await db.customer.create({
-      data: { fullName: customerName, phone: customerPhone, email: customerEmail || null },
-    });
-  } else if (customerEmail && !customer.email) {
-    // E-posta yoksa güncelle
-    await db.customer.update({ where: { id: customer.id }, data: { email: customerEmail } });
-  }
-
-  // ── Randevu oluştur ──────────────────────────────────────────────────────
-  const appt = await db.appointment.create({
-    data: {
+    const slotCheck = await validateBookingSlot({
       barberId,
-      serviceId: ids[0],
-      customerId: customer.id,
       date: appointmentDate,
       startTime,
-      endTime,
-      notes: notes || null,
-      status: finalStatus,
-      appointmentPrice: totalPrice,
-      verificationToken,
-      ipAddress,
-      userAgent,
-      riskScore,
-      riskReasons: riskReasons.length > 0 ? JSON.stringify(riskReasons) : null,
-      services: {
-        create: svcs.map((svc) => ({
-          serviceId: svc.id,
-          serviceName: svc.name,
-          category: svc.category,
-          price: svc.price,
-          durationMinutes: svc.durationMinutes,
-        })),
+      durationMinutes: totalDuration,
+      // Admin geçmişe kayıt girebilir (dün gelen müşteriyi sonradan işlemek gibi).
+      allowPast: isAdmin,
+      client: tx,
+    });
+
+    if (!slotCheck.ok) {
+      const adminOverride =
+        isAdmin && body.force === true && ADMIN_OVERRIDABLE_CODES.has(slotCheck.code);
+
+      if (!adminOverride) {
+        return { ok: false as const, check: slotCheck };
+      }
+    }
+
+    // ── Müşteri bul veya oluştur ───────────────────────────────────────────
+    let customer = await tx.customer.findUnique({ where: { phone: customerPhone } });
+    if (!customer) {
+      customer = await tx.customer.create({
+        data: { fullName: customerName, phone: customerPhone, email: customerEmail || null },
+      });
+    } else if (customerEmail && !customer.email) {
+      // E-posta yoksa güncelle
+      await tx.customer.update({ where: { id: customer.id }, data: { email: customerEmail } });
+    }
+
+    // ── Randevu oluştur ────────────────────────────────────────────────────
+    const created = await tx.appointment.create({
+      data: {
+        barberId,
+        serviceId: ids[0],
+        customerId: customer.id,
+        date: appointmentDate,
+        startTime,
+        endTime,
+        notes: notes || null,
+        status: finalStatus,
+        appointmentPrice: totalPrice,
+        verificationToken,
+        ipAddress,
+        userAgent,
+        riskScore,
+        riskReasons: riskReasons.length > 0 ? JSON.stringify(riskReasons) : null,
+        services: {
+          create: svcs.map((svc) => ({
+            serviceId: svc.id,
+            serviceName: svc.name,
+            category: svc.category,
+            price: svc.price,
+            durationMinutes: svc.durationMinutes,
+          })),
+        },
       },
-    },
-    include: { customer: true, barber: true, service: true, services: true },
+      include: { customer: true, barber: true, service: true, services: true },
+    });
+
+    await tx.customer.update({
+      where: { id: customer.id },
+      data: { totalAppointments: { increment: 1 } },
+    });
+
+    return { ok: true as const, appt: created };
+  },
+  {
+    // Aynı berber+gün için gelen istekler kilitte sıraya girer. Varsayılan
+    // 5 sn, yoğun bir anda kuyruğun sonundaki istek için yetmeyebilir.
+    maxWait: 5_000,
+    timeout: 15_000,
   });
 
-  await db.customer.update({
-    where: { id: customer.id },
-    data: { totalAppointments: { increment: 1 } },
-  });
+  if (!outcome.ok) {
+    const { check } = outcome;
+    return Response.json(
+      {
+        error: check.message,
+        code: check.code,
+        // Admin arayüzü "yine de oluştur" onayını buna göre gösterir.
+        overridable: isAdmin && ADMIN_OVERRIDABLE_CODES.has(check.code),
+      },
+      { status: 409 }
+    );
+  }
+
+  const appt = outcome.appt;
 
   // ── E-posta ──────────────────────────────────────────────────────────────
   if (isAdmin) {

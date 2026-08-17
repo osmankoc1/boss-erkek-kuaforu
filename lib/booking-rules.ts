@@ -124,6 +124,24 @@ export function slotInstant(dayStart: Date, startMinutes: number): Date {
 }
 
 /**
+ * Eşzamanlılık kilidi için anahtar üretir: `<barberId>:<YYYY-MM-DD>`.
+ *
+ * Kilit berber + gün bazındadır. Aynı berberin aynı günü için gelen istekler
+ * sıraya girer; farklı berber veya farklı gün istekleri birbirini beklemez.
+ * Gün genelinde kilitlenmesinin sebebi, çakışma kontrolünün o günün tüm
+ * randevularına bakıyor olmasıdır — daha dar bir kilit yarışı önlemez.
+ *
+ * Gün, yerel saat dilimine göre belirlenir (`startOfLocalDay` ile tutarlı).
+ */
+export function slotLockKey(barberId: string, date: Date): string {
+  const day = startOfLocalDay(date);
+  const year = day.getFullYear();
+  const month = String(day.getMonth() + 1).padStart(2, "0");
+  const dayOfMonth = String(day.getDate()).padStart(2, "0");
+  return `${barberId}:${year}-${month}-${dayOfMonth}`;
+}
+
+/**
  * Bir gün için gösterilebilecek en erken slot başlangıcını (gün içi dakika)
  * döndürür.
  *
