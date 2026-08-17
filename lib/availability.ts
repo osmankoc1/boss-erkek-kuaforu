@@ -1,55 +1,62 @@
 import { db } from "./db";
+import {
+  BLOCKING_STATUSES,
+  buildSlots,
+  startOfLocalDay,
+  startOfNextLocalDay,
+  timeToMinutes,
+  toMinuteRanges,
+} from "./booking-rules";
 
-export async function getAvailableSlots(barberId: string, dateStr: string, durationMinutes: number) {
+/**
+ * Bir berberin belirli bir gün için müsait slot listesini üretir.
+ *
+ * Kurallar `lib/booking-rules.ts` içinde tanımlıdır; bu fonksiyon yalnızca
+ * veriyi toplayıp o kurallara verir. Tek bir slotu doğrulamak için
+ * `validateBookingSlot` (lib/booking-guard.ts) kullanılır — ikisi de aynı
+ * kural setini paylaşır.
+ */
+export async function getAvailableSlots(
+  barberId: string,
+  dateStr: string,
+  durationMinutes: number
+): Promise<string[]> {
   const date = new Date(dateStr);
-  const dayOfWeek = date.getDay();
+  if (Number.isNaN(date.getTime())) return [];
+
+  const dayStart = startOfLocalDay(date);
+  const dayEnd = startOfNextLocalDay(date);
+  const dayOfWeek = dayStart.getDay();
 
   const workingHour = await db.workingHour.findFirst({
     where: { barberId, dayOfWeek, isOff: false },
+    select: { startTime: true, endTime: true },
   });
   if (!workingHour) return [];
 
   const exception = await db.dateException.findFirst({
-    where: {
-      barberId,
-      date: { gte: new Date(date.setHours(0, 0, 0, 0)), lt: new Date(date.setHours(23, 59, 59, 999)) },
-    },
+    where: { barberId, date: { gte: dayStart, lt: dayEnd } },
+    select: { id: true },
   });
   if (exception) return [];
 
   const existing = await db.appointment.findMany({
     where: {
       barberId,
-      date: { gte: new Date(new Date(dateStr).setHours(0, 0, 0, 0)), lt: new Date(new Date(dateStr).setHours(23, 59, 59, 999)) },
-      status: { in: ["pending", "confirmed"] },
+      date: { gte: dayStart, lt: dayEnd },
+      status: { in: [...BLOCKING_STATUSES] },
     },
-    select: { startTime: true, endTime: true },
+    select: { id: true, startTime: true, endTime: true },
   });
 
-  const slots: string[] = [];
-  const [startH, startM] = workingHour.startTime.split(":").map(Number);
-  const [endH, endM] = workingHour.endTime.split(":").map(Number);
-  let current = startH * 60 + startM;
-  const end = endH * 60 + endM;
+  const windowStartMinutes = timeToMinutes(workingHour.startTime);
+  const windowEndMinutes = timeToMinutes(workingHour.endTime);
+  if (windowStartMinutes === null || windowEndMinutes === null) return [];
 
-  while (current + durationMinutes <= end) {
-    const slotStart = `${String(Math.floor(current / 60)).padStart(2, "0")}:${String(current % 60).padStart(2, "0")}`;
-    const slotEnd = `${String(Math.floor((current + durationMinutes) / 60)).padStart(2, "0")}:${String((current + durationMinutes) % 60).padStart(2, "0")}`;
-
-    const isOccupied = existing.some((appt) => {
-      const apptStart = timeToMinutes(appt.startTime);
-      const apptEnd = timeToMinutes(appt.endTime);
-      return current < apptEnd && current + durationMinutes > apptStart;
-    });
-
-    if (!isOccupied) slots.push(slotStart);
-    current += 30;
-  }
-
-  return slots;
-}
-
-function timeToMinutes(time: string) {
-  const [h, m] = time.split(":").map(Number);
-  return h * 60 + m;
+  return buildSlots({
+    windowStartMinutes,
+    windowEndMinutes,
+    durationMinutes,
+    busy: toMinuteRanges(existing),
+  });
 }
