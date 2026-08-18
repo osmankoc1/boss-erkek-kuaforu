@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { PUBLIC_BARBER_SELECT } from "@/lib/public-fields";
 import BookingForm from "./BookingForm";
 
 export const metadata = { title: "Randevu Al — BOSS Erkek Kuaförü" };
@@ -7,7 +8,13 @@ export default async function RandevuPage({ searchParams }: { searchParams: Prom
   const params = await searchParams;
   const [services, barbers] = await Promise.all([
     db.service.findMany({ where: { isActive: true }, orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }] }),
-    db.barber.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+    // İstemci bileşenine prop olarak gider — RSC payload'ına yalnızca
+    // public alanlar girmeli.
+    db.barber.findMany({
+      where: { isActive: true },
+      select: PUBLIC_BARBER_SELECT,
+      orderBy: { name: "asc" },
+    }),
   ]);
 
   return (

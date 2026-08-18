@@ -2,13 +2,14 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { formatPrice } from "@/lib/utils";
 import { getWorkingHoursText } from "@/lib/working-hours-text";
+import { PUBLIC_BARBER_SELECT } from "@/lib/public-fields";
 import AnimatedHero from "@/components/site/AnimatedHero";
 import { FadeIn, HoverLift } from "@/components/site/Animate";
 
 export default async function HomePage() {
   const [services, barbers, campaigns, settingsRows, hoursText] = await Promise.all([
     db.service.findMany({ where: { isActive: true }, take: 4 }),
-    db.barber.findMany({ where: { isActive: true }, take: 3 }),
+    db.barber.findMany({ where: { isActive: true }, select: PUBLIC_BARBER_SELECT, take: 3 }),
     db.campaign.findMany({
       where: {
         isActive: true,

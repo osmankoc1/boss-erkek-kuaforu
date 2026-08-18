@@ -1,9 +1,19 @@
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
+import { PUBLIC_BARBER_SELECT } from "@/lib/public-fields";
 
+/**
+ * Public berber listesi. Yalnızca müşteriye gösterilebilen alanlar döner —
+ * `commissionRate` ve `workerType` bu yanıtta asla yer almaz.
+ * Admin ekranları verisini sunucu bileşenlerinden alır, bu endpoint'ten değil.
+ */
 export async function GET() {
-  const barbers = await db.barber.findMany({ where: { isActive: true }, orderBy: { name: "asc" } });
+  const barbers = await db.barber.findMany({
+    where: { isActive: true },
+    select: PUBLIC_BARBER_SELECT,
+    orderBy: { name: "asc" },
+  });
   return Response.json({ barbers });
 }
 

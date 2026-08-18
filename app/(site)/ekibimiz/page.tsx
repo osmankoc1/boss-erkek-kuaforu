@@ -1,11 +1,15 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
+import { PUBLIC_BARBER_SELECT } from "@/lib/public-fields";
 import { FadeIn, HoverLift } from "@/components/site/Animate";
 
 export const metadata = { title: "Ekibimiz — BOSS Erkek Kuaförü" };
 
 export default async function EkibimizPage() {
-  const barbers = await db.barber.findMany({ where: { isActive: true } });
+  const barbers = await db.barber.findMany({
+    where: { isActive: true },
+    select: PUBLIC_BARBER_SELECT,
+  });
 
   return (
     <div className="min-h-screen bg-[#0a0a0a]">

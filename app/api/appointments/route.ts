@@ -41,6 +41,11 @@ export async function GET(req: NextRequest) {
   const appointmentId = req.nextUrl.searchParams.get("appointmentId");
 
   if (appointmentId) {
+    // Satış/ciro verisi dahilidir — yalnızca admin oturumuyla erişilebilir.
+    const session = await getSession();
+    if (!session?.userId) {
+      return Response.json({ error: "Yetkisiz." }, { status: 401 });
+    }
     const sales = await db.sale.findMany({ where: { appointmentId } });
     return Response.json({ sales });
   }

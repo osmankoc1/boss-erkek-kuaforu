@@ -2,9 +2,23 @@ import { NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
+import { PUBLIC_SETTING_KEYS } from "@/lib/public-fields";
 
+/**
+ * Ayarlar. Admin oturumu varsa tümü, yoksa yalnızca public işletme bilgileri
+ * döner — dahili yapılandırma (bildirim adresi, Resend, entegrasyon anahtarları)
+ * oturumsuz çağrılara sızmaz.
+ *
+ * Not: Public site sayfaları ayarları zaten sunucu tarafında `db.setting`
+ * üzerinden okuyor; bu endpoint'e bağımlı değiller.
+ */
 export async function GET() {
-  const settings = await db.setting.findMany();
+  const session = await getSession();
+  const isAdmin = !!session?.userId;
+
+  const settings = await db.setting.findMany(
+    isAdmin ? undefined : { where: { key: { in: [...PUBLIC_SETTING_KEYS] } } }
+  );
   const map = Object.fromEntries(settings.map((s) => [s.key, s.value]));
   return Response.json({ settings: map });
 }

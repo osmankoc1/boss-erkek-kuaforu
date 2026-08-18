@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import type { Barber } from "@/app/generated/prisma/client";
+import type { PublicBarber } from "@/lib/public-fields";
 import { formatPrice } from "@/lib/utils";
 import ServicePicker, { type PickerService, type SelectedItem } from "@/components/admin/ServicePicker";
 
@@ -10,7 +10,7 @@ type Step = 1 | 2 | 3;
 
 interface BookingFormProps {
   services: PickerService[];
-  barbers: Barber[];
+  barbers: PublicBarber[];
   defaultBarberId?: string;
 }
 
@@ -364,7 +364,7 @@ export default function BookingForm({ services, barbers, defaultBarberId }: Book
 
 interface SummaryProps {
   selectedItems: SelectedItem[];
-  barber?: Barber;
+  barber?: PublicBarber;
   date?: string;
   time?: string;
   step: Step;
