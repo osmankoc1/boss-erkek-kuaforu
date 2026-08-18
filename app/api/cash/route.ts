@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
 import { calcShares, calcStatus, startOfDay, endOfDay } from "@/lib/sale";
 import { validatePhone, PHONE_ERROR } from "@/lib/phone";
+import { acquireAdvisoryLock, SALE_APPOINTMENT_LOCK } from "@/lib/advisory-lock";
 
 const saleItemSchema = z.object({
   serviceId: z.string().optional().nullable(),
@@ -148,28 +149,63 @@ export async function POST(req: NextRequest) {
   };
 
   if (data.appointmentId) {
-    const appointment = await db.appointment.findUnique({
-      where: { id: data.appointmentId },
-      include: { customer: true },
-    });
-    if (!appointment) return Response.json({ error: "Randevu bulunamadı." }, { status: 404 });
+    const appointmentId = data.appointmentId;
 
-    const [sale] = await db.$transaction([
-      db.sale.create({
-        data: { ...saleData, customerId: appointment.customerId, appointmentId: data.appointmentId },
+    // Bir randevunun yalnızca tek bir aktif kasa kaydı olabilir. Kontrol ile
+    // yazma arasındaki yarış penceresini kapatmak için, randevu bazlı advisory
+    // lock altında tek transaction içinde yapılır. Çift tıklama, yavaş
+    // bağlantı, istek tekrarı veya doğrudan API çağrısı çift ciro üretemez.
+    //
+    // VOIDED satışlar kasıtlı olarak hariç: iş kuralı yanlış tutarlı bir
+    // satışın void edilip yeniden girilmesine izin veriyor (bkz. Kullanım
+    // Rehberi — "Yanlış fiyat girildiyse: Void edin, tekrar doğru tutar ile
+    // girin").
+    const outcome = await db.$transaction(async (tx) => {
+      await acquireAdvisoryLock(tx, SALE_APPOINTMENT_LOCK, appointmentId);
+
+      const appointment = await tx.appointment.findUnique({
+        where: { id: appointmentId },
+        select: { customerId: true },
+      });
+      if (!appointment) return { kind: "not_found" as const };
+
+      const existing = await tx.sale.findFirst({
+        where: { appointmentId, saleStatus: { not: "VOIDED" } },
+        select: { id: true },
+      });
+      if (existing) return { kind: "duplicate" as const, saleId: existing.id };
+
+      const sale = await tx.sale.create({
+        data: { ...saleData, customerId: appointment.customerId, appointmentId },
         include: { items: true },
-      }),
-      db.appointment.update({
-        where: { id: data.appointmentId },
+      });
+      await tx.appointment.update({
+        where: { id: appointmentId },
         data: { status: "completed" },
-      }),
-      db.customer.update({
+      });
+      await tx.customer.update({
         where: { id: appointment.customerId },
         data: { completedCount: { increment: 1 }, lastVisitAt: saleDate },
-      }),
-    ]);
+      });
 
-    return Response.json({ sale }, { status: 201 });
+      return { kind: "created" as const, sale };
+    }, { maxWait: 5_000, timeout: 15_000 });
+
+    if (outcome.kind === "not_found") {
+      return Response.json({ error: "Randevu bulunamadı." }, { status: 404 });
+    }
+    if (outcome.kind === "duplicate") {
+      return Response.json(
+        {
+          error: "Bu randevu için zaten bir kasa kaydı var. Yeniden girmek için önce mevcut satışı iptal (Void) edin.",
+          code: "SALE_ALREADY_EXISTS",
+          saleId: outcome.saleId,
+        },
+        { status: 409 }
+      );
+    }
+
+    return Response.json({ sale: outcome.sale }, { status: 201 });
   }
 
   const sale = await db.sale.create({ data: saleData, include: { items: true } });
