@@ -1,10 +1,24 @@
 import { Resend } from "resend";
 import type { Appointment, Customer, Barber, Service } from "@/app/generated/prisma/client";
+import { displayAppointmentCode } from "./appointment-code";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = process.env.RESEND_FROM_EMAIL ?? "randevu@boss-kuafor.com";
 
 type AppointmentFull = Appointment & { customer: Customer; barber: Barber; service: Service | null };
+
+/**
+ * Randevu kodu satırı.
+ *
+ * Müşteri randevusunu sorgulamak veya iptal etmek için telefon numarası +
+ * bu kodu birlikte kullanır. Kodu kaybederse erişimi kalmayacağı için
+ * müşteriye giden e-postalarda görünür olması zorunludur.
+ */
+function codeRow(appt: AppointmentFull) {
+  return `<tr><td><strong>Randevu Kodu:</strong></td><td style="font-family:monospace; letter-spacing:1px; color:#e8913a;"><strong>${displayAppointmentCode(appt.id)}</strong></td></tr>`;
+}
+
+const CODE_HINT = `<p style="color:#9ca3af; font-size:12px;">Randevunuzu sorgulamak veya iptal etmek için telefon numaranız ile yukarıdaki randevu kodunu kullanabilirsiniz.</p>`;
 
 export async function sendNewBookingNotification(appt: AppointmentFull, adminEmail: string) {
   await resend.emails.send({
@@ -38,7 +52,9 @@ export async function sendConfirmationEmail(appt: AppointmentFull) {
         <tr><td><strong>Saat:</strong></td><td>${appt.startTime}</td></tr>
         <tr><td><strong>Hizmet:</strong></td><td>${appt.service?.name ?? "—"}</td></tr>
         <tr><td><strong>Çalışan:</strong></td><td>${appt.barber.name}</td></tr>
+        ${codeRow(appt)}
       </table>
+      ${CODE_HINT}
       <p>Görüşmek üzere!</p>
     `),
   });
@@ -72,7 +88,9 @@ export async function sendVerificationEmail(appt: AppointmentFull, verificationU
         <tr><td><strong>Saat:</strong></td><td>${appt.startTime}</td></tr>
         <tr><td><strong>Hizmet:</strong></td><td>${appt.service?.name ?? "—"}</td></tr>
         <tr><td><strong>Çalışan:</strong></td><td>${appt.barber.name}</td></tr>
+        ${codeRow(appt)}
       </table>
+      ${CODE_HINT}
       <div style="text-align:center; margin: 28px 0;">
         <a href="${verificationUrl}"
           style="display:inline-block; background:#c9762c; color:#ffffff; font-weight:bold; font-size:15px; padding:14px 32px; border-radius:8px; text-decoration:none;">

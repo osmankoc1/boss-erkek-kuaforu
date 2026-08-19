@@ -4,7 +4,9 @@ import { formatDate, STATUS_LABELS } from "@/lib/utils";
 
 export default function RandevuSorgulaPage() {
   const [phone, setPhone] = useState("");
+  const [code, setCode] = useState("");
   const [phoneError, setPhoneError] = useState("");
+  const [lookupError, setLookupError] = useState("");
   const [loading, setLoading] = useState(false);
   const [appointments, setAppointments] = useState<any[]>([]);
   const [searched, setSearched] = useState(false);
@@ -18,14 +20,35 @@ export default function RandevuSorgulaPage() {
       setPhoneError("Telefon numarası 10 haneli olmalı ve başında 0 veya +90 olmadan yazılmalıdır. Örnek: 5551234567");
       return;
     }
+    if (!code.trim()) {
+      setPhoneError("");
+      setLookupError("Randevu kodunuzu girin. Kod, randevu onay sayfanızda ve size gönderilen e-postada yer alır.");
+      return;
+    }
     setPhoneError("");
+    setLookupError("");
     setCancelError("");
     setLoading(true);
-    const res = await fetch(`/api/appointments?phone=${encodeURIComponent(phone.trim())}`);
-    const data = await res.json();
-    setAppointments(data.appointments ?? []);
-    setSearched(true);
-    setLoading(false);
+    try {
+      // Sunucu telefon + randevu kodunu birlikte doğrular ve yalnızca
+      // eşleşen tek randevuyu döndürür.
+      const res = await fetch(
+        `/api/appointments?phone=${encodeURIComponent(phone.trim())}&code=${encodeURIComponent(code.trim())}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAppointments([]);
+        setLookupError(data.error ?? "Randevu sorgulanamadı.");
+        setSearched(true);
+        return;
+      }
+      setAppointments(data.appointment ? [data.appointment] : []);
+      setSearched(true);
+    } catch {
+      setLookupError("Bağlantı hatası. Lütfen tekrar deneyin.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleCancel(id: string) {
@@ -41,7 +64,7 @@ export default function RandevuSorgulaPage() {
         body: JSON.stringify({
           status: "cancelled",
           phone: phone.trim(),
-          code: id.slice(-8).toUpperCase(),
+          code: code.trim(),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -68,7 +91,7 @@ export default function RandevuSorgulaPage() {
         <div className="relative max-w-2xl mx-auto text-center">
           <p className="text-[#c9762c] text-xs font-bold tracking-[0.4em] uppercase mb-4">Randevularım</p>
           <h1 className="text-5xl md:text-6xl font-black mb-5 leading-tight">Randevu Sorgula</h1>
-          <p className="text-[#6b7280] text-lg">Telefon numaranızla tüm randevularınızı görüntüleyin.</p>
+          <p className="text-[#6b7280] text-lg">Telefon numaranız ve randevu kodunuzla randevunuzu görüntüleyin.</p>
         </div>
       </div>
 
@@ -80,13 +103,31 @@ export default function RandevuSorgulaPage() {
             <label className="block text-xs font-bold text-[#9ca3af] mb-3 uppercase tracking-[0.2em]">
               Telefon Numaranız
             </label>
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => { setPhone(e.target.value); if (phoneError) setPhoneError(""); }}
+              placeholder="5551234567"
+              className={`w-full bg-[#0f0f0f] border rounded-md px-4 py-3 text-white placeholder-[#4b5563] outline-none transition-colors text-sm ${phoneError ? "border-red-500/50 focus:border-red-500" : "border-[#2a2a2a] focus:border-[#c9762c]"}`}
+            />
+            {phoneError ? (
+              <p className="mt-2 text-red-400 text-xs">{phoneError}</p>
+            ) : (
+              <p className="mt-2 text-[#4b5563] text-xs">Başında 0 veya +90 olmadan 10 haneli yazın. Örnek: 5551234567</p>
+            )}
+
+            <label className="block text-xs font-bold text-[#9ca3af] mt-5 mb-3 uppercase tracking-[0.2em]">
+              Randevu Kodu
+            </label>
             <div className="flex gap-3">
               <input
-                type="tel"
-                value={phone}
-                onChange={(e) => { setPhone(e.target.value); if (phoneError) setPhoneError(""); }}
-                placeholder="5551234567"
-                className={`flex-1 bg-[#0f0f0f] border rounded-md px-4 py-3 text-white placeholder-[#4b5563] outline-none transition-colors text-sm ${phoneError ? "border-red-500/50 focus:border-red-500" : "border-[#2a2a2a] focus:border-[#c9762c]"}`}
+                type="text"
+                value={code}
+                onChange={(e) => { setCode(e.target.value); if (lookupError) setLookupError(""); }}
+                placeholder="A1B2C3D4"
+                maxLength={8}
+                autoCapitalize="characters"
+                className="flex-1 bg-[#0f0f0f] border border-[#2a2a2a] focus:border-[#c9762c] rounded-md px-4 py-3 text-white placeholder-[#4b5563] outline-none transition-colors text-sm font-mono tracking-widest uppercase"
               />
               <button
                 type="submit"
@@ -96,10 +137,17 @@ export default function RandevuSorgulaPage() {
                 {loading ? "..." : "Sorgula"}
               </button>
             </div>
-            {phoneError ? (
-              <p className="mt-2 text-red-400 text-xs">{phoneError}</p>
-            ) : (
-              <p className="mt-2 text-[#4b5563] text-xs">Başında 0 veya +90 olmadan 10 haneli yazın. Örnek: 5551234567</p>
+            <p className="mt-2 text-[#4b5563] text-xs">
+              Randevu kodunuz onay sayfanızda ve size gönderilen e-postada yer alır.
+            </p>
+
+            {lookupError && (
+              <div className="mt-4 flex items-start gap-2.5 p-3.5 bg-red-500/8 border border-red-500/20 text-red-400 rounded-lg text-sm">
+                <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {lookupError}
+              </div>
             )}
           </form>
 
@@ -114,7 +162,7 @@ export default function RandevuSorgulaPage() {
           )}
 
           {/* Sonuçlar */}
-          {searched && (
+          {searched && !lookupError && (
             appointments.length === 0 ? (
               <div className="text-center py-12 text-[#6b7280] bg-[#141414] border border-[#2a2a2a] rounded-xl">
                 <div className="w-12 h-12 rounded-full bg-[#1e1e1e] flex items-center justify-center mx-auto mb-4">
@@ -123,7 +171,7 @@ export default function RandevuSorgulaPage() {
                   </svg>
                 </div>
                 <p className="font-semibold text-sm">Randevu bulunamadı</p>
-                <p className="text-xs mt-1 text-[#4b5563]">Bu numaraya ait kayıt yok.</p>
+                <p className="text-xs mt-1 text-[#4b5563]">Telefon numaranızı ve randevu kodunu kontrol edin.</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -131,8 +179,12 @@ export default function RandevuSorgulaPage() {
                   <div key={a.id} className="bg-[#141414] border border-[#2a2a2a] rounded-xl p-5 hover:border-[#c9762c]/20 transition-colors">
                     <div className="flex items-start justify-between mb-4">
                       <div>
-                        <div className="font-bold text-white">{a.service?.name}</div>
-                        <div className="text-[#6b7280] text-sm mt-0.5">{a.barber?.name}</div>
+                        <div className="font-bold text-white">
+                          {a.services?.length > 0
+                            ? a.services.map((s: { serviceName: string }) => s.serviceName).join(", ")
+                            : a.serviceName ?? "—"}
+                        </div>
+                        <div className="text-[#6b7280] text-sm mt-0.5">{a.barberName}</div>
                       </div>
                       <StatusBadge status={a.status} />
                     </div>

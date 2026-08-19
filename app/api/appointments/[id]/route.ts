@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { sendConfirmationEmail, sendCancellationEmail } from "@/lib/mail";
+import { matchesAppointmentCode } from "@/lib/appointment-code";
 
 /**
  * Randevu durum geçiş makinesi.
@@ -32,10 +33,6 @@ const patchSchema = z.object({
   code: z.string().optional(),
 });
 
-/** Randevu kodu = cuid'in son 8 karakteri. Onay sayfasında müşteriye gösterilir. */
-function appointmentCode(id: string): string {
-  return id.slice(-8).toLowerCase();
-}
 
 /** Public iptal denemeleri için kaba kuvvet koruması. */
 async function isRateLimited(ip: string): Promise<boolean> {
@@ -96,7 +93,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext<"/api/appointmen
     // Yalnızca randevu ID'sini bilen biri (kod ID'den türediği için onu da
     // bilir) telefonu bilmeden iptal edemez.
     const phoneOk = !!phone && phone.trim() === appt.customer.phone;
-    const codeOk = !!code && code.trim().toLowerCase() === appointmentCode(appt.id);
+    const codeOk = !!code && matchesAppointmentCode(appt.id, code);
 
     if (!phoneOk || !codeOk) {
       return Response.json(

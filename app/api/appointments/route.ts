@@ -7,6 +7,7 @@ import { validatePhone, PHONE_ERROR } from "@/lib/phone";
 import { calcRiskScore } from "@/lib/risk";
 import { acquireSlotLock, validateBookingSlot } from "@/lib/booking-guard";
 import type { BookingIssueCode } from "@/lib/booking-rules";
+import { displayAppointmentCode, normalizeCodeInput } from "@/lib/appointment-code";
 
 /**
  * Admin'in bilinçli olarak (force ile) geçebileceği doğrulama hataları.
@@ -50,23 +51,92 @@ export async function GET(req: NextRequest) {
     return Response.json({ sales });
   }
 
-  if (!phone) return Response.json({ error: "Telefon gerekli." }, { status: 400 });
+  // ── Public randevu sorgulama ─────────────────────────────────────────────
+  // Telefon TEK BAŞINA yeterli değildir; randevu kodu da gerekir. Aksi halde
+  // numara deneyerek başkasının randevu geçmişi okunabilirdi.
+  const code = req.nextUrl.searchParams.get("code");
 
-  if (!validatePhone(phone.trim())) {
+  if (!phone || !code) {
+    return Response.json(
+      { error: "Telefon numarası ve randevu kodu gereklidir." },
+      { status: 400 }
+    );
+  }
+
+  const trimmedPhone = phone.trim();
+  if (!validatePhone(trimmedPhone)) {
     return Response.json({ error: PHONE_ERROR }, { status: 400 });
   }
 
-  const customer = await db.customer.findUnique({ where: { phone: phone.trim() } });
-  if (!customer) return Response.json({ appointments: [] });
-
-  const appointments = await db.appointment.findMany({
-    where: { customerId: customer.id },
-    include: { service: true, barber: true, services: true },
-    orderBy: { date: "desc" },
-    take: 20,
+  // Kaba kuvvetle kod tarama girişimlerini yavaşlatır.
+  const lookupIp =
+    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
+    req.headers.get("x-real-ip") ??
+    "unknown";
+  const lookupCutoff = new Date(Date.now() - 10 * 60 * 1000);
+  const lookupCount = await db.rateLimit.count({
+    where: { key: `lookup-ip:${lookupIp}`, action: "lookup", createdAt: { gte: lookupCutoff } },
   });
+  if (lookupCount >= 10) {
+    return Response.json(
+      { error: "Çok fazla sorgulama yapıldı. Lütfen 10 dakika sonra tekrar deneyin." },
+      { status: 429 }
+    );
+  }
+  await db.rateLimit.create({ data: { key: `lookup-ip:${lookupIp}`, action: "lookup" } });
 
-  return Response.json({ appointments });
+  // Telefon yanlış, kod yanlış ve randevu yok durumları AYNI yanıtı döndürür;
+  // aksi halde hangi numaraların kayıtlı olduğu çıkarılabilirdi.
+  const notFound = Response.json(
+    { error: "Randevu bulunamadı. Telefon numaranızı ve randevu kodunu kontrol edin." },
+    { status: 404 }
+  );
+
+  const customer = await db.customer.findUnique({
+    where: { phone: trimmedPhone },
+    select: { id: true, fullName: true },
+  });
+  if (!customer) return notFound;
+
+  // Kod, id'nin son 8 karakteridir; eşleşme veritabanında yapılır.
+  const appointment = await db.appointment.findFirst({
+    where: {
+      customerId: customer.id,
+      id: { endsWith: normalizeCodeInput(code) },
+    },
+    select: {
+      id: true,
+      date: true,
+      startTime: true,
+      endTime: true,
+      status: true,
+      appointmentPrice: true,
+      barber: { select: { name: true, specialty: true } },
+      service: { select: { name: true } },
+      services: { select: { serviceName: true, price: true, durationMinutes: true } },
+    },
+  });
+  if (!appointment) return notFound;
+
+  // Yalnızca müşterinin görmesi gereken alanlar döner. `ipAddress`,
+  // `userAgent`, `riskScore`, `verificationToken` gibi dahili alanlar
+  // bilinçli olarak dışarıda bırakılmıştır.
+  return Response.json({
+    appointment: {
+      id: appointment.id,
+      code: displayAppointmentCode(appointment.id),
+      date: appointment.date,
+      startTime: appointment.startTime,
+      endTime: appointment.endTime,
+      status: appointment.status,
+      appointmentPrice: appointment.appointmentPrice,
+      customerName: customer.fullName,
+      barberName: appointment.barber.name,
+      barberSpecialty: appointment.barber.specialty,
+      serviceName: appointment.service?.name ?? null,
+      services: appointment.services,
+    },
+  });
 }
 
 export async function POST(req: NextRequest) {
