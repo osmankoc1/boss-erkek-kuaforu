@@ -38,9 +38,8 @@ export const STATUS_LABELS: Record<string, string> = {
   completed: "Tamamlandı",
 };
 
-export const TAG_LABELS: Record<string, string> = {
-  normal: "Normal",
-  düzenli: "Düzenli",
-  VIP: "VIP",
-  sorunlu: "Sorunlu",
-};
+// Müşteri etiketleri tek bir yerde tanımlı (lib/customer-tags.ts) — yazma
+// şeması da oradan besleniyor. Mevcut importlar bozulmasın diye buradan
+// yeniden dışa aktarılıyor.
+export { TAG_LABELS, tagLabel, CUSTOMER_TAGS, isCustomerTag } from "./customer-tags";
+export type { CustomerTag } from "./customer-tags";

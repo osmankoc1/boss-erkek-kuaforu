@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { formatDate, TAG_LABELS } from "@/lib/utils";
+import { formatDate, TAG_LABELS, tagLabel } from "@/lib/utils";
 
 export const metadata = { title: "Müşteriler — BOSS Admin" };
 
@@ -72,7 +72,7 @@ export default async function MusterilerPage({ searchParams }: { searchParams: P
                   <td className="px-4 py-3 text-[#9ca3af]">{c.phone}</td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded border text-xs font-semibold ${tagColors[c.tag] ?? ""}`}>
-                      {TAG_LABELS[c.tag] ?? c.tag}
+                      {tagLabel(c.tag)}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-[#9ca3af]">{c.totalAppointments}</td>

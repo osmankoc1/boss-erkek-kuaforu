@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
+import { customerUpdateSchema } from "@/lib/customer-schema";
 
 export async function GET(_req: NextRequest, ctx: RouteContext<"/api/customers/[id]">) {
   const session = await getSession();
@@ -41,12 +42,24 @@ export async function PATCH(req: NextRequest, ctx: RouteContext<"/api/customers/
   if (!session?.userId) return Response.json({ error: "Yetkisiz." }, { status: 401 });
 
   const { id } = await ctx.params;
-  const body = await req.json();
-  const { tag, notes } = body;
 
+  const body = await req.json().catch(() => null);
+  const parsed = customerUpdateSchema.safeParse(body);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const path = issue?.path.join(".");
+    return Response.json(
+      { error: path ? `${path}: ${issue.message}` : (issue?.message ?? "Geçersiz veri.") },
+      { status: 400 }
+    );
+  }
+
+  // Yalnızca şemadaki alanlar yazılır; gövdedeki diğer anahtarlar Zod
+  // tarafından atılır. Alan gönderilmemişse mevcut değer korunur.
+  const { tag, notes } = parsed.data;
   const customer = await db.customer.update({
     where: { id },
-    data: { ...(tag ? { tag } : {}), ...(notes !== undefined ? { notes } : {}) },
+    data: { ...(tag !== undefined ? { tag } : {}), ...(notes !== undefined ? { notes } : {}) },
   });
 
   return Response.json({ customer });
