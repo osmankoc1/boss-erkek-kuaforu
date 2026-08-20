@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { PUBLIC_SETTING_KEYS } from "@/lib/public-fields";
+import { settingsUpdateSchema } from "@/lib/settings-schema";
 
 /**
  * Ayarlar. Admin oturumu varsa tümü, yoksa yalnızca public işletme bilgileri
@@ -27,10 +28,29 @@ export async function POST(req: NextRequest) {
   const session = await getSession();
   if (!session?.userId) return Response.json({ error: "Yetkisiz." }, { status: 401 });
 
-  const body = await req.json() as Record<string, string>;
+  const body = await req.json().catch(() => null);
+  const parsed = settingsUpdateSchema.safeParse(body);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const path = issue?.path.join(".");
+    return Response.json(
+      { error: path ? `${path}: ${issue.message}` : (issue?.message ?? "Geçersiz veri.") },
+      { status: 400 }
+    );
+  }
+
+  // Yalnızca şemadaki anahtarlar yazılır. Şemada olmayanlar Zod tarafından
+  // atılır (strip) — reddetmek yerine atmak bilinçli: arayüz, veritabanında
+  // duran eski anahtarları da geri gönderiyor ve katı reddetme kaydetmeyi
+  // tamamen kilitlerdi.
+  const entries = Object.entries(parsed.data).filter(([, value]) => value !== undefined) as [string, string][];
+
+  if (entries.length === 0) {
+    return Response.json({ error: "Güncellenecek geçerli bir ayar alanı yok." }, { status: 400 });
+  }
 
   await Promise.all(
-    Object.entries(body).map(([key, value]) =>
+    entries.map(([key, value]) =>
       db.setting.upsert({ where: { key }, update: { value }, create: { key, value } })
     )
   );
