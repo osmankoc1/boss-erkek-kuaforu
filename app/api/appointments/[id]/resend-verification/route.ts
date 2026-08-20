@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
-import { sendVerificationEmail } from "@/lib/mail";
+import { logMailFailure, sendVerificationEmail } from "@/lib/mail";
 
 export async function POST(
   req: NextRequest,
@@ -54,7 +54,8 @@ export async function POST(
 
   try {
     await sendVerificationEmail(appt, verificationUrl);
-  } catch {
+  } catch (error) {
+    logMailFailure({ kind: "verification", appointmentId: id, recipient: appt.customer.email, error });
     return Response.json({ error: "Mail gönderilemedi. Lütfen e-posta ayarlarını kontrol edin." }, { status: 500 });
   }
 

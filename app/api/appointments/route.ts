@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
-import { sendNewBookingNotification, sendVerificationEmail } from "@/lib/mail";
+import { logMailFailure, sendNewBookingNotification, sendVerificationEmail } from "@/lib/mail";
 import { validatePhone, PHONE_ERROR } from "@/lib/phone";
 import { calcRiskScore } from "@/lib/risk";
 import { acquireSlotLock, validateBookingSlot } from "@/lib/booking-guard";
@@ -368,12 +368,27 @@ export async function POST(req: NextRequest) {
   if (isAdmin) {
     const adminSetting = await db.setting.findUnique({ where: { key: "business_email" } });
     if (adminSetting?.value) {
-      try { await sendNewBookingNotification(appt, adminSetting.value); } catch {}
+      try {
+        await sendNewBookingNotification(appt, adminSetting.value);
+      } catch (error) {
+        logMailFailure({ kind: "admin_new_booking", appointmentId: appt.id, recipient: adminSetting.value, error });
+      }
     }
   } else if (verificationToken && customerEmail) {
     const origin = req.nextUrl.origin;
     const verificationUrl = `${origin}/api/appointments/verify?token=${verificationToken}`;
-    try { await sendVerificationEmail(appt, verificationUrl); } catch {}
+    // Doğrulama maili randevu akışının zorunlu halkası: gitmezse müşteri
+    // randevusunu doğrulayamaz ve cron 24 saat sonra iptal eder. Randevu yine
+    // de oluşturulur (akış bozulmaz) ama başarısızlık loga düşer.
+    try {
+      await sendVerificationEmail(appt, verificationUrl);
+      await db.appointment.update({
+        where: { id: appt.id },
+        data: { verificationEmailSentAt: new Date() },
+      });
+    } catch (error) {
+      logMailFailure({ kind: "verification", appointmentId: appt.id, recipient: customerEmail, error });
+    }
   }
 
   return Response.json({ id: appt.id }, { status: 201 });

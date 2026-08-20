@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { sendAdminVerifiedNotification } from "@/lib/mail";
+import { logMailFailure, sendAdminVerifiedNotification } from "@/lib/mail";
 
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token");
@@ -42,7 +42,11 @@ export async function GET(req: NextRequest) {
   // Admin'e bildirim
   const adminSetting = await db.setting.findUnique({ where: { key: "business_email" } });
   if (adminSetting?.value) {
-    try { await sendAdminVerifiedNotification(appt, adminSetting.value); } catch {}
+    try {
+      await sendAdminVerifiedNotification(appt, adminSetting.value);
+    } catch (error) {
+      logMailFailure({ kind: "admin_verified", appointmentId: appt.id, recipient: adminSetting.value, error });
+    }
   }
 
   return Response.redirect(new URL(`/randevu/onay?id=${appt.id}`, req.url));

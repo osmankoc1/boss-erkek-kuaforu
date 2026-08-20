@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { sendReminderEmail } from "@/lib/mail";
+import { logMailFailure, sendReminderEmail } from "@/lib/mail";
 import { verifyCronAuth } from "@/lib/cron-auth";
 
 export async function GET(req: Request) {
@@ -22,13 +22,23 @@ export async function GET(req: Request) {
   });
 
   let sent = 0;
+  let failed = 0;
   for (const appt of appointments) {
     try {
       await sendReminderEmail(appt);
+      // reminderSent yalnızca gönderim başarılıysa işaretlenir; başarısız
+      // olanlar bir sonraki cron çalışmasında yeniden denenir.
       await db.appointment.update({ where: { id: appt.id }, data: { reminderSent: true } });
       sent++;
-    } catch {}
+    } catch (error) {
+      failed++;
+      logMailFailure({ kind: "reminder", appointmentId: appt.id, recipient: appt.customer.email, error });
+    }
   }
 
-  return Response.json({ sent });
+  if (failed > 0) {
+    console.error("[cron] hatirlatma maili: " + sent + " gonderildi, " + failed + " basarisiz");
+  }
+
+  return Response.json({ sent, failed });
 }

@@ -2,8 +2,85 @@ import { Resend } from "resend";
 import type { Appointment, Customer, Barber, Service } from "@/app/generated/prisma/client";
 import { displayAppointmentCode } from "./appointment-code";
 
+// Uyarılar `new Resend()` çağrısından ÖNCE yazılır: anahtar yoksa Resend
+// yapıcısı modül yüklenirken hata fırlatır ve sonraki satırlara hiç ulaşılmaz.
+// Bu sırayla, loga en azından sebebi düşer.
+if (!process.env.RESEND_API_KEY) {
+  console.error("[mail] RESEND_API_KEY tanımlı değil — e-posta modülü yüklenemeyecek.");
+}
+if (!process.env.RESEND_FROM_EMAIL) {
+  console.warn("[mail] RESEND_FROM_EMAIL tanımlı değil; varsayılan gönderici adresi kullanılıyor.");
+}
+
 const resend = new Resend(process.env.RESEND_API_KEY);
-const FROM = process.env.RESEND_FROM_EMAIL ?? "randevu@boss-kuafor.com";
+
+/**
+ * Gönderici adresi. Resend, gönderim yapılan domainin panelde doğrulanmış
+ * olmasını şart koşar; bu yüzden fallback de doğrulanmış domaini kullanır.
+ */
+const FROM = process.env.RESEND_FROM_EMAIL ?? "randevu@bosskuafor.com.tr";
+
+/**
+ * Resend SDK'sı hata durumunda İSTİSNA FIRLATMAZ; `{ data, error }` döndürür.
+ * Dönüş kontrol edilmezse doğrulanmamış domain, geçersiz API anahtarı veya
+ * reddedilen alıcı gibi hatalar sessizce kaybolur ve çağıran taraftaki
+ * try/catch hiç tetiklenmez.
+ *
+ * Bu sarmalayıcı hatayı istisnaya çevirir; böylece çağrı yerlerindeki
+ * hata yakalama ve `logMailFailure` gerçekten çalışır.
+ */
+async function dispatch(payload: Parameters<typeof resend.emails.send>[0]): Promise<void> {
+  const { error } = await resend.emails.send(payload);
+  if (error) {
+    const name = error.name ?? "resend_error";
+    const message = error.message ?? "bilinmeyen hata";
+    throw new Error(`${name}: ${message}`);
+  }
+}
+
+/** Gönderilen e-posta türleri — log filtrelemede kullanılır. */
+export type MailKind =
+  | "verification"
+  | "confirmation"
+  | "cancellation"
+  | "reminder"
+  | "admin_new_booking"
+  | "admin_verified";
+
+/**
+ * Log/PII güvenliği: e-posta adresini `ab***@domain.com` biçimine indirger.
+ * Yıldız sayısı sabittir; yerel kısmın uzunluğunu sızdırmaz.
+ */
+export function maskEmail(email: string | null | undefined): string {
+  if (!email) return "(yok)";
+  const at = email.indexOf("@");
+  if (at < 1) return "(geçersiz)";
+  return `${email.slice(0, Math.min(2, at))}***${email.slice(at)}`;
+}
+
+/**
+ * Başarısız e-posta gönderimini sunucu loguna yazar.
+ *
+ * Tek satır ve sabit alan adlarıyla yazılır; Vercel loglarında
+ * `[mail] FAILED` veya `kind=verification` ile aranabilir.
+ * Alıcı adresi maskelenir — log satırları PII taşımaz.
+ */
+export function logMailFailure(params: {
+  kind: MailKind;
+  appointmentId?: string;
+  recipient?: string | null;
+  error: unknown;
+}): void {
+  const { kind, appointmentId, recipient, error } = params;
+  const reason = error instanceof Error ? error.message : String(error);
+  console.error(
+    "[mail] FAILED" +
+      ` kind=${kind}` +
+      (appointmentId ? ` appointmentId=${appointmentId}` : "") +
+      ` recipient=${maskEmail(recipient)}` +
+      ` reason=${JSON.stringify(reason)}`
+  );
+}
 
 type AppointmentFull = Appointment & { customer: Customer; barber: Barber; service: Service | null };
 
@@ -21,7 +98,7 @@ function codeRow(appt: AppointmentFull) {
 const CODE_HINT = `<p style="color:#9ca3af; font-size:12px;">Randevunuzu sorgulamak veya iptal etmek için telefon numaranız ile yukarıdaki randevu kodunu kullanabilirsiniz.</p>`;
 
 export async function sendNewBookingNotification(appt: AppointmentFull, adminEmail: string) {
-  await resend.emails.send({
+  await dispatch({
     from: FROM,
     to: adminEmail,
     subject: `Yeni Randevu: ${appt.customer.fullName}`,
@@ -40,7 +117,7 @@ export async function sendNewBookingNotification(appt: AppointmentFull, adminEma
 
 export async function sendConfirmationEmail(appt: AppointmentFull) {
   if (!appt.customer.email) return;
-  await resend.emails.send({
+  await dispatch({
     from: FROM,
     to: appt.customer.email,
     subject: "Randevunuz Onaylandı — BOSS Erkek Kuaförü",
@@ -62,7 +139,7 @@ export async function sendConfirmationEmail(appt: AppointmentFull) {
 
 export async function sendCancellationEmail(appt: AppointmentFull) {
   if (!appt.customer.email) return;
-  await resend.emails.send({
+  await dispatch({
     from: FROM,
     to: appt.customer.email,
     subject: "Randevunuz İptal Edildi — BOSS Erkek Kuaförü",
@@ -76,7 +153,7 @@ export async function sendCancellationEmail(appt: AppointmentFull) {
 
 export async function sendVerificationEmail(appt: AppointmentFull, verificationUrl: string) {
   if (!appt.customer.email) return;
-  await resend.emails.send({
+  await dispatch({
     from: FROM,
     to: appt.customer.email,
     subject: "Randevunuzu Doğrulayın — BOSS Erkek Kuaförü",
@@ -103,7 +180,7 @@ export async function sendVerificationEmail(appt: AppointmentFull, verificationU
 }
 
 export async function sendAdminVerifiedNotification(appt: AppointmentFull, adminEmail: string) {
-  await resend.emails.send({
+  await dispatch({
     from: FROM,
     to: adminEmail,
     subject: `E-posta Doğrulandı: ${appt.customer.fullName} — Onay Bekliyor`,
@@ -124,7 +201,7 @@ export async function sendAdminVerifiedNotification(appt: AppointmentFull, admin
 
 export async function sendReminderEmail(appt: AppointmentFull) {
   if (!appt.customer.email) return;
-  await resend.emails.send({
+  await dispatch({
     from: FROM,
     to: appt.customer.email,
     subject: "Yarınki Randevu Hatırlatması — BOSS Erkek Kuaförü",

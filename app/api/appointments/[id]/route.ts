@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
-import { sendConfirmationEmail, sendCancellationEmail } from "@/lib/mail";
+import { logMailFailure, sendConfirmationEmail, sendCancellationEmail } from "@/lib/mail";
 import { matchesAppointmentCode } from "@/lib/appointment-code";
 
 /**
@@ -163,7 +163,14 @@ export async function PATCH(req: NextRequest, ctx: RouteContext<"/api/appointmen
       try {
         if (status === "cancelled") await sendCancellationEmail(full);
         else await sendConfirmationEmail(full);
-      } catch {}
+      } catch (error) {
+        logMailFailure({
+          kind: status === "cancelled" ? "cancellation" : "confirmation",
+          appointmentId: id,
+          recipient: full.customer.email,
+          error,
+        });
+      }
     }
   }
 
