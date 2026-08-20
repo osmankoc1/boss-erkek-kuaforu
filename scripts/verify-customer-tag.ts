@@ -51,8 +51,8 @@ const PHONE = "05559990001";
 let cookie = "";
 let testId = "";
 
-async function patch(body: unknown, withAuth = true, raw = false) {
-  const res = await fetch(`${BASE}/api/customers/${testId}`, {
+async function patch(body: unknown, withAuth = true, raw = false, id?: string) {
+  const res = await fetch(`${BASE}/api/customers/${id ?? testId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...(withAuth ? { Cookie: cookie } : {}) },
     body: raw ? (body as string) : JSON.stringify(body),
@@ -252,6 +252,24 @@ async function main() {
     });
     check("Hicbir gercek musterinin tag/notes degeri degismedi", degisen.length === 0,
       degisen.map((d) => d.fullName).join(", "));
+
+    // ── TEST 11 — Var olmayan müşteri 404 vermeli (500 değil) ────────────
+    console.log("\nTEST 11 — Var olmayan musteri -> 404");
+    const SAHTE = ["yok-boyle-bir-id", "cmzzzzzzz000000000000000", "00000000-0000-0000-0000-000000000000"];
+    for (const fake of SAHTE) {
+      const r = await patch({ tag: "VIP" }, true, false, fake);
+      check(`PATCH '${fake.slice(0, 24)}' -> 404 (500 degil)`, r.status === 404, `gelen ${r.status}`);
+      check(`  ...hata mesaji anlamli`, typeof r.body.error === "string" && r.body.error.length > 0,
+        `govde=${JSON.stringify(r.body).slice(0, 80)}`);
+      const olustu = await db.customer.findUnique({ where: { id: fake }, select: { id: true } });
+      check(`  ...ve yeni kayit olusmadi`, olustu === null, "olustu");
+    }
+    const fakeGet = await fetch(`${BASE}/api/customers/yok-boyle-bir-id`, { headers: { Cookie: cookie } });
+    check("GET ile ayni id -> 404 (tutarli)", fakeGet.status === 404, `gelen ${fakeGet.status}`);
+    const fakeNoAuth = await patch({ tag: "VIP" }, false, false, "yok-boyle-bir-id");
+    check("Oturumsuz + sahte id -> 401 (varlik bilgisi sizmiyor)", fakeNoAuth.status === 401, `gelen ${fakeNoAuth.status}`);
+    const fakeBadTag = await patch({ tag: "hacker" }, true, false, "yok-boyle-bir-id");
+    check("Sahte id + gecersiz tag -> 400 (dogrulama once)", fakeBadTag.status === 400, `gelen ${fakeBadTag.status}`);
   } finally {
     console.log("\nTEMIZLIK...");
     const del = await db.customer.deleteMany({ where: { phone: PHONE } });

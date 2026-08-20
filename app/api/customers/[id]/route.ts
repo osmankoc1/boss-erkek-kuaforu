@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { customerUpdateSchema } from "@/lib/customer-schema";
+import { isRecordNotFound } from "@/lib/prisma-errors";
 
 export async function GET(_req: NextRequest, ctx: RouteContext<"/api/customers/[id]">) {
   const session = await getSession();
@@ -57,10 +58,18 @@ export async function PATCH(req: NextRequest, ctx: RouteContext<"/api/customers/
   // Yalnızca şemadaki alanlar yazılır; gövdedeki diğer anahtarlar Zod
   // tarafından atılır. Alan gönderilmemişse mevcut değer korunur.
   const { tag, notes } = parsed.data;
-  const customer = await db.customer.update({
-    where: { id },
-    data: { ...(tag !== undefined ? { tag } : {}), ...(notes !== undefined ? { notes } : {}) },
-  });
-
-  return Response.json({ customer });
+  try {
+    const customer = await db.customer.update({
+      where: { id },
+      data: { ...(tag !== undefined ? { tag } : {}), ...(notes !== undefined ? { notes } : {}) },
+    });
+    return Response.json({ customer });
+  } catch (error) {
+    // Var olmayan müşteri: Prisma P2025 fırlatır. Bu bir sunucu hatası değil,
+    // GET'te olduğu gibi 404 ile karşılanmalı.
+    if (isRecordNotFound(error)) {
+      return Response.json({ error: "Müşteri bulunamadı." }, { status: 404 });
+    }
+    throw error;
+  }
 }
