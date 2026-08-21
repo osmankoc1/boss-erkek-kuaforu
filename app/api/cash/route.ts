@@ -5,6 +5,7 @@ import { requireAdmin } from "@/lib/dal";
 import { calcShares, calcStatus, startOfDay, endOfDay } from "@/lib/sale";
 import { validatePhone, PHONE_ERROR } from "@/lib/phone";
 import { acquireAdvisoryLock, SALE_APPOINTMENT_LOCK } from "@/lib/advisory-lock";
+import { canCreateSaleFor, cashRejectionMessage } from "@/lib/appointment-status";
 import { istanbulDateString } from "@/lib/tz";
 
 const saleItemSchema = z.object({
@@ -161,9 +162,17 @@ export async function POST(req: NextRequest) {
 
       const appointment = await tx.appointment.findUnique({
         where: { id: appointmentId },
-        select: { customerId: true },
+        select: { customerId: true, status: true },
       });
       if (!appointment) return { kind: "not_found" as const };
+
+      // Randevu durum makinesi kasa tarafindan da uygulanir (FAZ 2 · Sira 4).
+      // Iptal edilmis / onaylanmamis / e-postasi dogrulanmamis randevu icin
+      // kasa kaydi acilamaz; aksi halde makine delinir ve musteri sayaclari
+      // iki kez artar.
+      if (!canCreateSaleFor(appointment.status)) {
+        return { kind: "not_eligible" as const, status: appointment.status };
+      }
 
       const existing = await tx.sale.findFirst({
         where: { appointmentId, saleStatus: { not: "VOIDED" } },
@@ -205,6 +214,16 @@ export async function POST(req: NextRequest) {
 
     if (outcome.kind === "not_found") {
       return Response.json({ error: "Randevu bulunamadı." }, { status: 404 });
+    }
+    if (outcome.kind === "not_eligible") {
+      return Response.json(
+        {
+          error: cashRejectionMessage(outcome.status),
+          code: "APPOINTMENT_NOT_ELIGIBLE",
+          currentStatus: outcome.status,
+        },
+        { status: 409 }
+      );
     }
     if (outcome.kind === "duplicate") {
       return Response.json(

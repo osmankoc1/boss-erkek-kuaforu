@@ -4,24 +4,11 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { logMailFailure, sendConfirmationEmail, sendCancellationEmail } from "@/lib/mail";
 import { matchesAppointmentCode } from "@/lib/appointment-code";
+import { ALLOWED_TRANSITIONS } from "@/lib/appointment-status";
 import { isRecordNotFound } from "@/lib/prisma-errors";
 
-/**
- * Randevu durum geçiş makinesi.
- *
- * Burada olmayan her geçiş yasaktır. Özellikle:
- * - `completed` uçtur: kasa kaydı oluşmuş olabilir, iptali para tutarsızlığı
- *   yaratır. Yanlış satış için kasa tarafındaki void akışı kullanılmalıdır.
- * - `cancelled` uçtur: geri alınmaz. Müşteri yeniden randevu almalıdır —
- *   böylece slot doğrulaması (Faz 1 · Sıra 5–8) yeniden çalışır.
- */
-const ALLOWED_TRANSITIONS: Record<string, readonly string[]> = {
-  pending_verification: ["cancelled"],
-  pending: ["confirmed", "cancelled"],
-  confirmed: ["completed", "cancelled"],
-  completed: [],
-  cancelled: [],
-};
+// Durum gecis makinesi lib/appointment-status.ts icinde (FAZ 2 · Sira 4);
+// kasa tarafi da ayni kaynagi kullaniyor.
 
 /** Oturumu olmayan (public) çağıranın yapabileceği tek geçiş. */
 const PUBLIC_ALLOWED_STATUS = "cancelled";
