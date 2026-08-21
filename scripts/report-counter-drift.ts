@@ -1,8 +1,11 @@
 /**
  * Müşteri sayaç sapması RAPORU — SALT OKUMA (FAZ 2 · Sıra 7).
  *
- * Çalıştırma:
+ * Çalıştırma (geliştirme hedefi):
  *   npx dotenv -e .env.local -- tsx scripts/report-counter-drift.ts
+ *
+ * Çalıştırma (production gibi allowlist DIŞI hedef — açık onay gerekir):
+ *   READONLY_REMOTE_OK=1 npx dotenv -e .env.production.local -- tsx scripts/report-counter-drift.ts
  *
  * Bu script HİÇBİR VERİ DEĞİŞTİRMEZ. Yalnızca her müşteri için
  *   mevcut sayaç → gerçek veriden hesaplanan → fark
@@ -12,17 +15,11 @@ import { PrismaClient } from "../app/generated/prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { neonConfig } from "@neondatabase/serverless";
 import ws from "ws";
+import { assertReadableDatabase } from "../lib/db-guard";
 
 neonConfig.webSocketConstructor = ws;
 
-const cs = process.env.DATABASE_URL;
-if (!cs) {
-  console.error("DATABASE_URL yok.");
-  process.exit(1);
-}
-const ep = (/@([^/.]+)/.exec(cs)?.[1] ?? "").replace(/-pooler$/, "");
-const prod = ep.startsWith("ep-raspy-brook");
-console.log(`Hedef endpoint: ${ep.split("-").slice(0, 3).join("-")}-****  ${prod ? "(PRODUCTION — SALT OKUMA)" : "(dev)"}\n`);
+const { connectionString: cs } = assertReadableDatabase();
 
 const db = new PrismaClient({ adapter: new PrismaNeon({ connectionString: cs }) });
 

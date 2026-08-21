@@ -12,22 +12,18 @@ import { PrismaClient } from "../app/generated/prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { neonConfig } from "@neondatabase/serverless";
 import ws from "ws";
+import { assertWritableTestDatabase } from "../lib/db-guard";
 import { SignJWT } from "jose";
 import { displayAppointmentCode } from "../lib/appointment-code";
 
 neonConfig.webSocketConstructor = ws;
 
 const BASE_URL = process.env.TEST_BASE_URL ?? "http://localhost:3000";
-const PROD_ENDPOINT_PREFIX = "ep-raspy-brook";
 const TEST_TAG = "__lookup_test__";
 const PHONE_A = "5554440001";
 const PHONE_B = "5554440002";
 
-const cs = process.env.DATABASE_URL;
-if (!cs) { console.error("DATABASE_URL yok."); process.exit(1); }
-const endpoint = (/@([^/.]+)/.exec(cs)?.[1] ?? "").replace(/-pooler$/, "");
-if (endpoint.startsWith(PROD_ENDPOINT_PREFIX)) { console.error("DURDURULDU: production."); process.exit(1); }
-console.log(`Hedef endpoint: ${endpoint.split("-").slice(0, 3).join("-")}-****  (production degil)\n`);
+const { connectionString: cs } = assertWritableTestDatabase();
 
 const db = new PrismaClient({ adapter: new PrismaNeon({ connectionString: cs }) });
 

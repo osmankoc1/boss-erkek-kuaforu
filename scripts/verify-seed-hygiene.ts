@@ -14,24 +14,14 @@ import { PrismaClient } from "../app/generated/prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { neonConfig } from "@neondatabase/serverless";
 import ws from "ws";
+import { assertWritableTestDatabase } from "../lib/db-guard";
 import bcrypt from "bcryptjs";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 neonConfig.webSocketConstructor = ws;
 
-const cs = process.env.DATABASE_URL;
-if (!cs) {
-  console.error("DATABASE_URL yok.");
-  process.exit(1);
-}
-const ep = (/@([^/.]+)/.exec(cs)?.[1] ?? "").replace(/-pooler$/, "");
-if (ep.startsWith("ep-raspy-brook")) {
-  console.error("DURDURULDU: production.");
-  process.exit(1);
-}
-console.log(`Hedef endpoint: ${ep.split("-").slice(0, 3).join("-")}-****  (production degil)\n`);
-
+const { connectionString: cs } = assertWritableTestDatabase();
 const db = new PrismaClient({ adapter: new PrismaNeon({ connectionString: cs }) });
 
 let passed = 0;
@@ -194,14 +184,14 @@ async function main() {
       dbSonra.appointments.length === dbOnce.appointments.length,
     `once=${dbOnce.users.length}/${dbOnce.barbers.length}/${dbOnce.customers.length}/${dbOnce.appointments.length} sonra=${dbSonra.users.length}/${dbSonra.barbers.length}/${dbSonra.customers.length}/${dbSonra.appointments.length}`);
 
-  console.log("\nBOLUM B2 — Production endpoint'ine karsi seed reddedilmeli");
+  console.log("\nBOLUM B2 — Allowlist DISI endpoint'e karsi seed reddedilmeli");
   const sahteProd = runSeed({
-    DATABASE_URL: "postgresql://kullanici:parola@ep-raspy-brook-example-pooler.eu-central-1.aws.neon.tech/neondb",
+    DATABASE_URL: "postgresql://kullanici:parola@ep-baska-bir-endpoint-pooler.eu-central-1.aws.neon.tech/neondb",
     SEED_ADMIN_EMAIL: TEST_EMAIL,
     SEED_ADMIN_PASSWORD: PASS_1,
   });
-  check("Production endpoint -> sifir olmayan cikis", sahteProd.code !== 0, `kod=${sahteProd.code}`);
-  check("  ...gerekce belirtiliyor", /production/i.test(sahteProd.all), sahteProd.all.slice(0, 100));
+  check("Allowlist disi endpoint -> sifir olmayan cikis", sahteProd.code !== 0, `kod=${sahteProd.code}`);
+  check("  ...gerekce belirtiliyor", /izinli|DURDURULDU/i.test(sahteProd.all), sahteProd.all.slice(0, 140));
 
   // ── BÖLÜM C — Env varsa admin oluşturma ve güncelleme ────────────────
   console.log("\nBOLUM C — Env varsa admin hesabi olusturuluyor/guncelleniyor");

@@ -12,29 +12,19 @@ import { PrismaClient } from "../app/generated/prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { neonConfig } from "@neondatabase/serverless";
 import ws from "ws";
+import { assertReadableDatabase } from "../lib/db-guard";
 import { SignJWT } from "jose";
 
 neonConfig.webSocketConstructor = ws;
 
 const BASE_URL = process.env.TEST_BASE_URL ?? "http://localhost:3000";
-const PROD_ENDPOINT_PREFIX = "ep-raspy-brook";
 
 /** Public yanıtta/HTML'de ASLA görünmemesi gereken alanlar. */
 const FORBIDDEN_FIELDS = ["commissionRate", "workerType"] as const;
 /** Public settings yanıtında görünmemesi gereken anahtarlar. */
 const PRIVATE_SETTING_KEYS = ["business_email", "resend_from_email", "google_calendar_enabled", "google_calendar_id"] as const;
 
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  console.error("DATABASE_URL yok. dotenv -e .env.local ile calistirin.");
-  process.exit(1);
-}
-const endpoint = (/@([^/.]+)/.exec(connectionString)?.[1] ?? "").replace(/-pooler$/, "");
-if (endpoint.startsWith(PROD_ENDPOINT_PREFIX)) {
-  console.error("DURDURULDU: DATABASE_URL production endpointine isaret ediyor.");
-  process.exit(1);
-}
-console.log(`Hedef endpoint: ${endpoint.split("-").slice(0, 3).join("-")}-****  (production degil)\n`);
+const { connectionString: connectionString } = assertReadableDatabase();
 
 const db = new PrismaClient({ adapter: new PrismaNeon({ connectionString }) });
 

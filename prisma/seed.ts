@@ -3,22 +3,21 @@ import { PrismaNeon } from "@prisma/adapter-neon";
 import { neonConfig } from "@neondatabase/serverless";
 import ws from "ws";
 import bcrypt from "bcryptjs";
+import { assertWritableTestDatabase } from "../lib/db-guard";
 
 neonConfig.webSocketConstructor = ws;
-
-const connectionString = process.env.DATABASE_URL;
 
 /**
  * Seed yalnizca gelistirme icindir: sabit id'li berber/hizmet/musteri/randevu
  * kayitlarini upsert eder. Production veritabaninda calistirilmasi gercek
- * veriyi bozar, bu yuzden production endpoint'ine karsi calismayi reddeder.
+ * veriyi bozar.
+ *
+ * Koruma ALLOWLIST tabanlidir (lib/db-guard.ts): yalnizca acikca izin verilen
+ * gelistirme hedeflerinde calisir. Production endpoint'i degisse bile koruma
+ * calismaya devam eder — onceki "production adini sabit yaz" yaklasimi
+ * endpoint degisince sessizce islevsiz kalmisti.
  */
-const PRODUCTION_ENDPOINT_PREFIX = "ep-raspy-brook";
-const endpoint = (/@([^/.]+)/.exec(connectionString ?? "")?.[1] ?? "").replace(/-pooler$/, "");
-if (endpoint.startsWith(PRODUCTION_ENDPOINT_PREFIX)) {
-  console.error("DURDURULDU: DATABASE_URL production veritabanini gosteriyor. Seed production'da calistirilamaz.");
-  process.exit(1);
-}
+const { connectionString } = assertWritableTestDatabase();
 
 /**
  * Admin hesabi ortam degiskenlerinden okunur. Varsayilan bir e-posta/sifre

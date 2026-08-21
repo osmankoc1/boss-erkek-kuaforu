@@ -19,24 +19,14 @@ import { PrismaClient } from "../app/generated/prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { neonConfig } from "@neondatabase/serverless";
 import ws from "ws";
+import { assertWritableTestDatabase } from "../lib/db-guard";
 import { SignJWT } from "jose";
 import { istanbulDateString } from "../lib/tz";
 
 neonConfig.webSocketConstructor = ws;
 
 const BASE = process.env.TEST_BASE_URL ?? "http://localhost:3000";
-const cs = process.env.DATABASE_URL;
-if (!cs) {
-  console.error("DATABASE_URL yok.");
-  process.exit(1);
-}
-const ep = (/@([^/.]+)/.exec(cs)?.[1] ?? "").replace(/-pooler$/, "");
-if (ep.startsWith("ep-raspy-brook")) {
-  console.error("DURDURULDU: production.");
-  process.exit(1);
-}
-console.log(`Hedef endpoint: ${ep.split("-").slice(0, 3).join("-")}-****  (production degil)\n`);
-
+const { connectionString: cs } = assertWritableTestDatabase();
 const db = new PrismaClient({ adapter: new PrismaNeon({ connectionString: cs }) });
 
 let passed = 0;
