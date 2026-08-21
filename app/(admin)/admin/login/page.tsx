@@ -27,7 +27,7 @@ export default function LoginPage() {
               type="email"
               required
               className="w-full bg-[#1e1e1e] border border-[#2a2a2a] focus:border-[#c9762c] rounded-lg px-4 py-3 text-white outline-none"
-              placeholder="admin@boss.com"
+              placeholder="ornek@eposta.com"
             />
           </div>
 

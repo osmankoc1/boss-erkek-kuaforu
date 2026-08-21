@@ -6,19 +6,79 @@ import bcrypt from "bcryptjs";
 
 neonConfig.webSocketConstructor = ws;
 
-const adapter = new PrismaNeon({ connectionString: process.env.DATABASE_URL });
+const connectionString = process.env.DATABASE_URL;
+
+/**
+ * Seed yalnizca gelistirme icindir: sabit id'li berber/hizmet/musteri/randevu
+ * kayitlarini upsert eder. Production veritabaninda calistirilmasi gercek
+ * veriyi bozar, bu yuzden production endpoint'ine karsi calismayi reddeder.
+ */
+const PRODUCTION_ENDPOINT_PREFIX = "ep-raspy-brook";
+const endpoint = (/@([^/.]+)/.exec(connectionString ?? "")?.[1] ?? "").replace(/-pooler$/, "");
+if (endpoint.startsWith(PRODUCTION_ENDPOINT_PREFIX)) {
+  console.error("DURDURULDU: DATABASE_URL production veritabanini gosteriyor. Seed production'da calistirilamaz.");
+  process.exit(1);
+}
+
+/**
+ * Admin hesabi ortam degiskenlerinden okunur. Varsayilan bir e-posta/sifre
+ * YOKTUR — eksikse seed calismaz. Boylece kolay tahmin edilen bir hesap
+ * kazara olusturulamaz.
+ */
+const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL;
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD;
+const ADMIN_NAME = process.env.SEED_ADMIN_NAME ?? "Admin";
+const MIN_PASSWORD_LENGTH = 8;
+
+function requireAdminCredentials(): { email: string; password: string } {
+  const eksik: string[] = [];
+  if (!ADMIN_EMAIL?.trim()) eksik.push("SEED_ADMIN_EMAIL");
+  if (!ADMIN_PASSWORD) eksik.push("SEED_ADMIN_PASSWORD");
+  if (eksik.length > 0) {
+    console.error(`DURDURULDU: ${eksik.join(" ve ")} tanimli degil.`);
+    console.error("Seed admin hesabi icin varsayilan deger kullanilmaz; .env.local dosyasina ekleyin:");
+    console.error("  SEED_ADMIN_EMAIL=...");
+    console.error("  SEED_ADMIN_PASSWORD=...   (en az " + MIN_PASSWORD_LENGTH + " karakter)");
+    process.exit(1);
+  }
+  const email = ADMIN_EMAIL!.trim();
+  const password = ADMIN_PASSWORD!;
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    console.error("DURDURULDU: SEED_ADMIN_EMAIL gecerli bir e-posta adresi degil.");
+    process.exit(1);
+  }
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    console.error(`DURDURULDU: SEED_ADMIN_PASSWORD en az ${MIN_PASSWORD_LENGTH} karakter olmali.`);
+    process.exit(1);
+  }
+  return { email, password };
+}
+
+/** Loglarda e-postayi maskeler; sifre veya hash HICBIR ZAMAN yazilmaz. */
+function maskEmail(email: string): string {
+  const at = email.indexOf("@");
+  if (at < 1) return "(gecersiz)";
+  return `${email.slice(0, Math.min(2, at))}***${email.slice(at)}`;
+}
+
+const adapter = new PrismaNeon({ connectionString });
 const db = new PrismaClient({ adapter });
 
 async function main() {
   console.log("🌱 Seeding database...");
 
-  // Admin kullanıcı
-  const passwordHash = await bcrypt.hash("boss2024", 12);
+  // Admin kullanıcı — kimlik bilgileri ortam degiskenlerinden gelir.
+  const { email: adminEmail, password: adminPassword } = requireAdminCredentials();
+  const passwordHash = await bcrypt.hash(adminPassword, 12);
+  const mevcut = await db.user.findUnique({ where: { email: adminEmail }, select: { id: true } });
   await db.user.upsert({
-    where: { email: "admin@boss.com" },
-    update: {},
-    create: { email: "admin@boss.com", passwordHash, name: "Admin" },
+    where: { email: adminEmail },
+    // Sifre env'de degistirildiginde hesap gercekten guncellensin; aksi halde
+    // "sifreyi degistirdim ama eskisi hala calisiyor" tuzagi olusur.
+    update: { passwordHash, name: ADMIN_NAME },
+    create: { email: adminEmail, passwordHash, name: ADMIN_NAME },
   });
+  console.log(`👤 Admin ${mevcut ? "guncellendi" : "olusturuldu"}: ${maskEmail(adminEmail)}`);
 
   // İşletme ayarları
   const defaultSettings = [
@@ -176,7 +236,7 @@ async function main() {
   await db.customer.update({ where: { id: "cust-7" }, data: { completedCount: 2, totalAppointments: 2 } });
 
   console.log("✅ Seed tamamlandı!");
-  console.log("👤 Admin: admin@boss.com / boss2024");
+  console.log("👤 Admin girisi icin SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD degerlerini kullanin.");
 }
 
 main()

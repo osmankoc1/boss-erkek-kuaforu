@@ -193,7 +193,7 @@ async function main() {
     const dummyHash = "$2b$12$6.G7YqMfMxL3bMuYwU1uZ.vCqTmw0eMBaLF/e5dItkmU7mLYkG4EG";
     check("Dummy hash gecerli bcrypt formatinda", /^\$2[aby]\$12\$/.test(dummyHash));
     check("Dummy hash hicbir yaygin sifreyle eslesmiyor",
-      !bcrypt.compareSync("boss2024", dummyHash) && !bcrypt.compareSync("", dummyHash) && !bcrypt.compareSync("admin", dummyHash));
+      !bcrypt.compareSync("parola123", dummyHash) && !bcrypt.compareSync("", dummyHash) && !bcrypt.compareSync("admin", dummyHash));
 
     const t0 = Date.now();
     bcrypt.compareSync("herhangibirsifre", dummyHash);
