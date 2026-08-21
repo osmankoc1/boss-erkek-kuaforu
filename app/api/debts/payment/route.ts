@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
 import { calcStatus } from "@/lib/sale";
+import { acquireAdvisoryLock, SALE_PAYMENT_LOCK } from "@/lib/advisory-lock";
 
 const schema = z.object({
   saleId: z.string().min(1),
@@ -12,51 +13,122 @@ const schema = z.object({
   note: z.string().optional().nullable(),
 });
 
+/**
+ * Aynı satışa, aynı tutarda, aynı yöntemle gelen ikinci isteği mükerrer sayan
+ * pencere. Çift tıklama ve istek tekrarı bu aralığa düşer; gerçek ikinci bir
+ * tahsilat ise birkaç saniye sonra girilebilir.
+ *
+ * Not: Kesin idempotency (istemciden gelen benzersiz anahtar) yeni bir DB alanı
+ * ve unique index gerektirir. Bu pencere, migration'sız elde edilebilecek en
+ * güçlü koruma; kalan borç kontrolüyle birlikte tam ödemenin tekrarını zaten
+ * kesin olarak engeller.
+ */
+const MUKERRER_PENCERE_MS = 10_000;
+
+/** Kuruş hassasiyeti. */
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
 export async function POST(req: NextRequest) {
   const unauthorized = await requireAdmin();
   if (unauthorized) return unauthorized;
 
-  const body = await req.json();
+  const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) return Response.json({ error: "Geçersiz veri." }, { status: 400 });
 
   const { saleId, amount, paymentMethod, note } = parsed.data;
   const customerId = parsed.data.customerId ?? null;
 
-  const sale = await db.sale.findUnique({ where: { id: saleId } });
-  if (!sale) return Response.json({ error: "Satış bulunamadı." }, { status: 404 });
-  if (sale.saleStatus === "VOIDED") return Response.json({ error: "İptal edilmiş satışa ödeme yapılamaz." }, { status: 400 });
+  // Tüm kontrol ve yazma işlemi TEK transaction içinde, satış bazlı advisory
+  // lock altında yapılır. Kilitsiz hâlde satış "oku → hesapla → yaz" arasında
+  // ikinci bir istek araya giriyor ve ödeme defteri ile sale.paidAmount
+  // birbirinden kopuyordu (FAZ 2 · Sıra 6).
+  const outcome = await db.$transaction(
+    async (tx) => {
+      await acquireAdvisoryLock(tx, SALE_PAYMENT_LOCK, saleId);
 
-  const newPaid = Math.round((sale.paidAmount + amount) * 100) / 100;
-  const capped = Math.min(newPaid, sale.saleAmount);
-  const newRemaining = Math.round((sale.saleAmount - capped) * 100) / 100;
-  const newStatus = calcStatus(capped, sale.saleAmount);
+      const sale = await tx.sale.findUnique({ where: { id: saleId } });
+      if (!sale) return { kind: "not_found" as const };
+      if (sale.saleStatus === "VOIDED") return { kind: "voided" as const };
 
-  // Deftere satisa UYGULANAN tutar yazilir; boylece
-  // Σ(odeme defteri) == sale.paidAmount degismezi korunur.
-  // Kalan borctan fazla odeme girilirse fark burada duser — bunu 400 ile
-  // reddetmek FAZ 2 · Sira 6'nin konusudur.
-  const applied = Math.round((capped - sale.paidAmount) * 100) / 100;
+      const kalan = r2(sale.saleAmount - sale.paidAmount);
 
-  const [payment, updatedSale] = await db.$transaction([
-    db.customerPayment.create({
-      data: {
-        customerId,
-        saleId,
-        amount: applied,
-        paymentMethod,
-        note: note ?? null,
-      },
-    }),
-    db.sale.update({
-      where: { id: saleId },
-      data: {
-        paidAmount: capped,
-        remainingAmount: newRemaining,
-        saleStatus: newStatus,
-      },
-    }),
-  ]);
+      if (kalan <= 0) {
+        return { kind: "no_debt" as const };
+      }
 
-  return Response.json({ payment, sale: updatedSale }, { status: 201 });
+      // Kalan borçtan fazlası SESSİZCE KIRPILMAZ; istek reddedilir ve
+      // hiçbir veri değişmez.
+      if (r2(amount) > kalan) {
+        return { kind: "too_much" as const, kalan };
+      }
+
+      // Mükerrer istek koruması — kilit altında okunur, yarışa açık değildir.
+      const pencereBasi = new Date(Date.now() - MUKERRER_PENCERE_MS);
+      const ayni = await tx.customerPayment.findFirst({
+        where: {
+          saleId,
+          amount: r2(amount),
+          paymentMethod,
+          createdAt: { gte: pencereBasi },
+        },
+        select: { id: true, createdAt: true },
+      });
+      if (ayni) {
+        return { kind: "duplicate" as const, paymentId: ayni.id };
+      }
+
+      const yeniOdenen = r2(sale.paidAmount + amount);
+      const yeniKalan = r2(sale.saleAmount - yeniOdenen);
+
+      const payment = await tx.customerPayment.create({
+        data: { customerId, saleId, amount: r2(amount), paymentMethod, note: note ?? null },
+      });
+      const updatedSale = await tx.sale.update({
+        where: { id: saleId },
+        data: {
+          paidAmount: yeniOdenen,
+          remainingAmount: yeniKalan,
+          saleStatus: calcStatus(yeniOdenen, sale.saleAmount),
+        },
+      });
+
+      return { kind: "created" as const, payment, sale: updatedSale };
+    },
+    { maxWait: 5_000, timeout: 15_000 }
+  );
+
+  switch (outcome.kind) {
+    case "not_found":
+      return Response.json({ error: "Satış bulunamadı." }, { status: 404 });
+    case "voided":
+      return Response.json({ error: "İptal edilmiş satışa ödeme yapılamaz." }, { status: 400 });
+    case "no_debt":
+      return Response.json(
+        { error: "Bu satışın kalan borcu yok; tahsilat kaydedilmedi.", code: "NO_REMAINING_DEBT" },
+        { status: 400 }
+      );
+    case "too_much":
+      return Response.json(
+        {
+          error: `Kalan borç ${outcome.kalan.toFixed(2)} ₺. Daha fazlası tahsil edilemez.`,
+          code: "EXCEEDS_REMAINING",
+          remainingAmount: outcome.kalan,
+        },
+        { status: 400 }
+      );
+    case "duplicate":
+      return Response.json(
+        {
+          error:
+            "Aynı tutarda bir tahsilat az önce kaydedildi. Mükerrer kayıt olmasın diye bu istek işlenmedi. " +
+            "Gerçekten ikinci bir tahsilat ise birkaç saniye sonra tekrar deneyin.",
+          code: "DUPLICATE_PAYMENT",
+          paymentId: outcome.paymentId,
+        },
+        { status: 409 }
+      );
+    default:
+      return Response.json({ payment: outcome.payment, sale: outcome.sale }, { status: 201 });
+  }
 }

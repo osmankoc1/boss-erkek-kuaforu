@@ -26,3 +26,12 @@ export async function acquireAdvisoryLock(
 
 /** Randevu başına kasa kaydı oluşturmayı serileştiren kilit ad alanı. */
 export const SALE_APPOINTMENT_LOCK = "boss:sale-appointment";
+
+/**
+ * Satış başına tahsilat yazmayı serileştiren kilit ad alanı.
+ *
+ * Kilitsiz hâlde eşzamanlı istekler `sale.paidAmount` değerini aynı anda
+ * okuyup aynı anda yazıyordu: 5 paralel istek ödeme defterine 5 kayıt
+ * düşürüyor, satış tarafında ise tek artış oluyordu (FAZ 2 · Sıra 6).
+ */
+export const SALE_PAYMENT_LOCK = "boss:sale-payment";
