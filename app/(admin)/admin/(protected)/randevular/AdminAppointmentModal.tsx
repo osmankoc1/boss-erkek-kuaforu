@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import ServicePicker, { type PickerService, type SelectedItem } from "@/components/admin/ServicePicker";
+import { istanbulDateString } from "@/lib/tz";
 
 type Barber = { id: string; name: string; calendarColor: string };
 type CustomerResult = { id: string; fullName: string; phone: string };
@@ -22,7 +23,7 @@ function addMinutes(time: string, mins: number): string {
 }
 
 export default function AdminAppointmentModal({ barbers, services, defaultDate, onClose, onSaved }: Props) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = istanbulDateString();
 
   // Customer
   const [customerMode, setCustomerMode] = useState<CustomerMode>("search");

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { istanbulDateString } from "@/lib/tz";
 import { formatDate, STATUS_LABELS } from "@/lib/utils";
 import AppointmentActions from "./AppointmentActions";
 import CalendarView from "./CalendarView";
@@ -24,7 +25,7 @@ function getWeekRange(dateStr: string) {
 export default async function RandevularPage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
   const view = params.view ?? "list";
-  const today = new Date().toISOString().split("T")[0];
+  const today = istanbulDateString();
   const selectedDate = params.date ?? today;
   const status = params.status ?? "";
   const dateFilter = params.date ?? "";

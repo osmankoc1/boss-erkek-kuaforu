@@ -7,6 +7,7 @@ import {
   slotLockKey,
   startOfLocalDay,
   startOfNextLocalDay,
+  localDayOfWeek,
   type BookingCheckResult,
   type BookingContext,
 } from "./booking-rules";
@@ -113,7 +114,7 @@ export async function validateBookingSlot(
   // TZ=Europe/Istanbul olarak çalıştığı varsayılır (bkz. Faz 2 · saat dilimi).
   const dayStart = startOfLocalDay(parsedDate);
   const dayEnd = startOfNextLocalDay(parsedDate);
-  const dayOfWeek = dayStart.getDay();
+  const dayOfWeek = localDayOfWeek(dayStart);
 
   const [barber, workingHours, dateException, existingAppointments] = await Promise.all([
     client.barber.findUnique({

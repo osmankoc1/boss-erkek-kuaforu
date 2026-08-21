@@ -8,7 +8,16 @@
  * Amaç: aynı kuralın iki ayrı yerde farklı yazılmasını engellemek.
  * `lib/availability.ts` (slot listesi üretir) ve `lib/booking-guard.ts`
  * (tek bir slotu doğrular) bu dosyadaki aynı fonksiyonları kullanır.
+ *
+ * Tek istisna: gün sınırları `lib/tz.ts` üzerinden Europe/Istanbul takvimine
+ * göre hesaplanır. O dosya da aynı şekilde saftır (yalnızca `Intl` kullanır).
  */
+import {
+  startOfIstanbulDay,
+  startOfNextIstanbulDay,
+  istanbulDateString,
+  istanbulDayOfWeek,
+} from "./tz";
 
 /**
  * Bir slotu "dolu" sayan randevu durumları.
@@ -99,18 +108,35 @@ export function isWithinWorkingWindow(slot: MinuteRange, window: MinuteRange): b
   return slot.startMinutes >= window.startMinutes && slot.endMinutes <= window.endMinutes;
 }
 
-/** Yerel gün başlangıcı (gece yarısı). Girdiyi mutasyona uğratmaz. */
+/**
+ * İşletme gününün başlangıcı (Europe/Istanbul gece yarısı).
+ *
+ * Önceden `setHours(0,0,0,0)` ile SUNUCUNUN yerel saatine göre kuruluyordu.
+ * Vercel UTC çalıştığı için bu, gün başlangıcını İstanbul 03:00'e kaydırıyor
+ * ve `slotInstant` ile birlikte tüm saat karşılaştırmalarını 3 saat ileri
+ * alıyordu (geçmiş saat filtresi ve IN_PAST kontrolü buna bağlı).
+ *
+ * İsim geriye dönük uyumluluk için korundu; artık "yerel" = İstanbul.
+ * Girdiyi mutasyona uğratmaz.
+ */
 export function startOfLocalDay(date: Date): Date {
-  const result = new Date(date);
-  result.setHours(0, 0, 0, 0);
-  return result;
+  return startOfIstanbulDay(date);
 }
 
-/** Ertesi günün yerel başlangıcı. Gün aralığı sorguları için üst sınır (`lt`). */
+/** Ertesi işletme gününün başlangıcı. Gün aralığı sorguları için üst sınır (`lt`). */
 export function startOfNextLocalDay(date: Date): Date {
-  const result = startOfLocalDay(date);
-  result.setDate(result.getDate() + 1);
-  return result;
+  return startOfNextIstanbulDay(date);
+}
+
+/**
+ * Bir günün haftanın kaçıncı günü olduğu (0 = Pazar), İstanbul takvimine göre.
+ *
+ * `dayStart.getDay()` kullanılamaz: gün başlangıcı artık İstanbul gece yarısı
+ * (UTC'de bir önceki günün 21:00'i) olduğu için sunucunun `getDay()` değeri
+ * bir gün geri kayar.
+ */
+export function localDayOfWeek(date: Date): number {
+  return istanbulDayOfWeek(date);
 }
 
 /**
@@ -131,14 +157,10 @@ export function slotInstant(dayStart: Date, startMinutes: number): Date {
  * Gün genelinde kilitlenmesinin sebebi, çakışma kontrolünün o günün tüm
  * randevularına bakıyor olmasıdır — daha dar bir kilit yarışı önlemez.
  *
- * Gün, yerel saat dilimine göre belirlenir (`startOfLocalDay` ile tutarlı).
+ * Gün, Europe/Istanbul takvimine göre belirlenir (`startOfLocalDay` ile tutarlı).
  */
 export function slotLockKey(barberId: string, date: Date): string {
-  const day = startOfLocalDay(date);
-  const year = day.getFullYear();
-  const month = String(day.getMonth() + 1).padStart(2, "0");
-  const dayOfMonth = String(day.getDate()).padStart(2, "0");
-  return `${barberId}:${year}-${month}-${dayOfMonth}`;
+  return `${barberId}:${istanbulDateString(date)}`;
 }
 
 /**
@@ -149,8 +171,8 @@ export function slotLockKey(barberId: string, date: Date): string {
  *   0    → gelecekteki bir gün, filtre uygulanmaz
  *   N    → bugün; N'den önce başlayan slotlar elenir
  *
- * Karşılaştırma yerel saat dilimine göre yapılır; sunucunun
- * TZ=Europe/Istanbul olarak çalıştığı varsayılır (bkz. Faz 2 · saat dilimi).
+ * Karşılaştırma Europe/Istanbul takvimine göre yapılır ve sunucunun saat
+ * diliminden bağımsızdır (bkz. lib/tz.ts).
  *
  * Sınır davranışı `evaluateBookingSlot`'un IN_PAST kontrolüyle aynıdır:
  * tam şu anda başlayan slot hâlâ geçerlidir.

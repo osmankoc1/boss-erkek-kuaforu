@@ -5,6 +5,7 @@ import {
   resolveEarliestStartMinutes,
   startOfLocalDay,
   startOfNextLocalDay,
+  localDayOfWeek,
   timeToMinutes,
   toMinuteRanges,
 } from "./booking-rules";
@@ -36,7 +37,7 @@ export async function getAvailableSlots(
   if (earliestStartMinutes === null) return [];
 
   const dayEnd = startOfNextLocalDay(date);
-  const dayOfWeek = dayStart.getDay();
+  const dayOfWeek = localDayOfWeek(dayStart);
 
   const workingHour = await db.workingHour.findFirst({
     where: { barberId, dayOfWeek, isOff: false },

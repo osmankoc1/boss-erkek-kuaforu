@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatPrice, STATUS_LABELS } from "@/lib/utils";
+import { istanbulDateString } from "@/lib/tz";
 
 // px per minute (her 30 dk = 56px)
 const PX_PER_MIN = 56 / 30;
@@ -225,7 +226,7 @@ function WeekView({ appointments, date, onSelect }: {
   });
 
   const dayNames = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
-  const today = new Date().toISOString().split("T")[0];
+  const today = istanbulDateString();
 
   return (
     <div className="bg-[#111] border border-[#1e1e1e] rounded-xl overflow-hidden">

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import type { PublicBarber } from "@/lib/public-fields";
 import { formatPrice } from "@/lib/utils";
+import { istanbulDateString } from "@/lib/tz";
 import ServicePicker, { type PickerService, type SelectedItem } from "@/components/admin/ServicePicker";
 
 type Step = 1 | 2 | 3;
@@ -224,7 +225,7 @@ export default function BookingForm({ services, barbers, defaultBarberId }: Book
                   <SectionLabel>Tarih Seçin</SectionLabel>
                   <input
                     type="date"
-                    min={new Date().toISOString().split("T")[0]}
+                    min={istanbulDateString()}
                     value={form.date}
                     onChange={(e) => {
                       const d = e.target.value;
