@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
+import { recalculateCustomerCounters } from "@/lib/customer-counters";
 
 const schema = z.object({
   voidReason: z.string().optional().nullable(),
@@ -58,39 +59,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       });
     }
 
+    // 2 + 3) Sayaclar ve son ziyaret gercek kayitlardan yeniden hesaplanir.
+    // Randevu yukarida 'confirmed'a dondugu ve bu satis VOIDED oldugu icin
+    // recompute dogru sonucu uretir; ayri bir düşürme mantigi gerekmez
+    // (FAZ 2 · Sira 7).
     if (existing.customerId) {
-      // 2) Tamamlanan ziyaret sayacı geri alınır (negatife düşmez).
-      const customer = await tx.customer.findUnique({
-        where: { id: existing.customerId },
-        select: { completedCount: true },
-      });
-      const yeniSayac = Math.max(0, (customer?.completedCount ?? 0) - 1);
-
-      // 3) Son ziyaret tarihi kalan kayıtlardan yeniden hesaplanır.
-      //    Önceki değer saklanmadığı için "geri alma" ancak yeniden
-      //    hesaplamayla mümkün: kalan iptal edilmemiş satışlar ve
-      //    tamamlanmış randevular arasındaki en son tarih.
-      const [sonSatis, sonRandevu] = await Promise.all([
-        tx.sale.findFirst({
-          where: { customerId: existing.customerId, id: { not: id }, saleStatus: { not: "VOIDED" } },
-          orderBy: { saleDate: "desc" },
-          select: { saleDate: true },
-        }),
-        tx.appointment.findFirst({
-          where: { customerId: existing.customerId, status: "completed" },
-          orderBy: { date: "desc" },
-          select: { date: true },
-        }),
-      ]);
-      const adaylar = [sonSatis?.saleDate, sonRandevu?.date].filter((d): d is Date => !!d);
-      const yeniZiyaret = adaylar.length
-        ? new Date(Math.max(...adaylar.map((d) => d.getTime())))
-        : null;
-
-      await tx.customer.update({
-        where: { id: existing.customerId },
-        data: { completedCount: yeniSayac, lastVisitAt: yeniZiyaret },
-      });
+      await recalculateCustomerCounters(tx, existing.customerId);
     }
 
     // 4) Tahsil edilmiş para void gününe ters kayıtla iade edilir.

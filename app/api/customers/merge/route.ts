@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
 import { isRecordNotFound } from "@/lib/prisma-errors";
+import { recalculateManyCustomerCounters } from "@/lib/customer-counters";
 
 const schema = z.object({
   primaryId: z.string().min(1),
@@ -29,19 +30,23 @@ export async function POST(req: NextRequest) {
   if (secondary.mergedIntoCustomerId) return Response.json({ error: "Bu müşteri zaten birleştirilmiş." }, { status: 400 });
 
   try {
-    await db.$transaction([
-      db.sale.updateMany({ where: { customerId: secondaryId }, data: { customerId: primaryId } }),
-      db.customerPayment.updateMany({ where: { customerId: secondaryId }, data: { customerId: primaryId } }),
-      db.appointment.updateMany({ where: { customerId: secondaryId }, data: { customerId: primaryId } }),
-      db.customer.update({
+    await db.$transaction(async (tx) => {
+      await tx.sale.updateMany({ where: { customerId: secondaryId }, data: { customerId: primaryId } });
+      await tx.customerPayment.updateMany({ where: { customerId: secondaryId }, data: { customerId: primaryId } });
+      await tx.appointment.updateMany({ where: { customerId: secondaryId }, data: { customerId: primaryId } });
+      await tx.customer.update({
         where: { id: secondaryId },
         data: {
           mergedIntoCustomerId: primaryId,
           mergedAt: new Date(),
           phone: `__merged_${secondaryId}_${secondary.phone}`,
         },
-      }),
-    ]);
+      });
+      // Randevular tasindiktan sonra iki musterinin de sayaclari gercek
+      // kayitlardan yeniden hesaplanir (FAZ 2 · Sira 7). Onceden randevular
+      // tasiniyor ama sayaclar oldugu yerde kaliyordu.
+      await recalculateManyCustomerCounters(tx, [primaryId, secondaryId]);
+    });
   } catch (error) {
     // Yukaridaki varlik kontrolu ile bu transaction arasinda kayit silinmis
     // olabilir (TOCTOU). O durumda da 500 degil 404 donulur.

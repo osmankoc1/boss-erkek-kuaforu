@@ -5,6 +5,7 @@ import { getSession } from "@/lib/session";
 import { logMailFailure, sendConfirmationEmail, sendCancellationEmail } from "@/lib/mail";
 import { matchesAppointmentCode } from "@/lib/appointment-code";
 import { ALLOWED_TRANSITIONS } from "@/lib/appointment-status";
+import { recalculateCustomerCounters } from "@/lib/customer-counters";
 import { isRecordNotFound } from "@/lib/prisma-errors";
 
 // Durum gecis makinesi lib/appointment-status.ts icinde (FAZ 2 · Sira 4);
@@ -118,17 +119,11 @@ export async function PATCH(req: NextRequest, ctx: RouteContext<"/api/appointmen
     });
     if (updated.count === 0) return { applied: false as const };
 
-    if (status === "cancelled") {
-      await tx.customer.update({
-        where: { id: appt.customerId },
-        data: { cancelledCount: { increment: 1 } },
-      });
-    } else if (status === "completed") {
-      await tx.customer.update({
-        where: { id: appt.customerId },
-        data: { completedCount: { increment: 1 }, lastVisitAt: new Date() },
-      });
-    }
+    // Sayaclar durum gecisiyle AYNI transaction icinde, gercek kayitlardan
+    // yeniden hesaplanir (FAZ 2 · Sira 7). Kosullu updateMany zaten ikinci
+    // istegin gecisi uygulamasini engelliyor; recompute ayrica sayacin
+    // cift degismesini imkansiz kiliyor.
+    await recalculateCustomerCounters(tx, appt.customerId);
 
     return { applied: true as const };
   });
@@ -171,7 +166,15 @@ export async function DELETE(_req: NextRequest, ctx: RouteContext<"/api/appointm
 
   const { id } = await ctx.params;
   try {
-    await db.appointment.delete({ where: { id } });
+    // Silme ve sayac guncellemesi tek transaction: silinen randevu
+    // sayaclarda asili kalmaz (FAZ 2 · Sira 7).
+    await db.$transaction(async (tx) => {
+      const silinen = await tx.appointment.delete({
+        where: { id },
+        select: { customerId: true },
+      });
+      await recalculateCustomerCounters(tx, silinen.customerId);
+    });
   } catch (error) {
     // Var olmayan randevu: Prisma P2025 firlatir. PATCH ile ayni sekilde
     // 404 donulur; diger hatalar gercek sunucu hatasi olarak kalir.

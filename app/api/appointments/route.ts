@@ -6,6 +6,7 @@ import { logMailFailure, sendNewBookingNotification, sendVerificationEmail } fro
 import { validatePhone, PHONE_ERROR } from "@/lib/phone";
 import { calcRiskScore } from "@/lib/risk";
 import { acquireSlotLock, validateBookingSlot } from "@/lib/booking-guard";
+import { recalculateCustomerCounters } from "@/lib/customer-counters";
 import type { BookingIssueCode } from "@/lib/booking-rules";
 import { displayAppointmentCode, normalizeCodeInput } from "@/lib/appointment-code";
 
@@ -335,10 +336,10 @@ export async function POST(req: NextRequest) {
       include: { customer: true, barber: true, service: true, services: true },
     });
 
-    await tx.customer.update({
-      where: { id: customer.id },
-      data: { totalAppointments: { increment: 1 } },
-    });
+    // Sayaclar gercek kayitlardan yeniden hesaplanir (FAZ 2 · Sira 7):
+    // increment yerine recompute, boylece ayni olayin iki kez islenmesi
+    // sayaci iki kez degistirmez.
+    await recalculateCustomerCounters(tx, customer.id);
 
     return { ok: true as const, appt: created };
   },

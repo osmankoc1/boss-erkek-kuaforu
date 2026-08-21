@@ -114,11 +114,10 @@ async function main() {
     // ── Kurulum: randevulu satış ──────────────────────────────────────────
     console.log("KURULUM — randevulu satis (yanlis tutar girildi)");
     const cust = await db.customer.create({
-      data: { fullName: `${MARK} Musteri`, phone: `${PHONE_PREFIX}1`, completedCount: 3, cancelledCount: 1 },
+      // Sayaclar artik gercek kayitlardan hesaplaniyor (FAZ 2 · Sira 7);
+      // yapay baslangic degeri vermek anlamsiz olurdu.
+      data: { fullName: `${MARK} Musteri`, phone: `${PHONE_PREFIX}1` },
     });
-    const eskiZiyaret = new Date("2020-01-01T00:00:00.000Z");
-    await db.customer.update({ where: { id: cust.id }, data: { lastVisitAt: eskiZiyaret } });
-
     const appt = await db.appointment.create({
       data: {
         customerId: cust.id, barberId: barber.id, serviceId: service.id,
@@ -141,7 +140,7 @@ async function main() {
     const satisSonrasi = await db.customer.findUnique({
       where: { id: cust.id }, select: { completedCount: true, cancelledCount: true, lastVisitAt: true },
     });
-    console.log(`   satis ${YANLIS_TUTAR} TL | completedCount 3 -> ${satisSonrasi?.completedCount}`);
+    console.log(`   satis ${YANLIS_TUTAR} TL | completedCount 0 -> ${satisSonrasi?.completedCount}`);
     const ciroOnce = await get(`/api/cash/summary?date=${BUGUN}`);
     console.log(`   bugun ciro ${ciroOnce.realizedRevenue}, tahsilat ${ciroOnce.collected}`);
 
@@ -170,10 +169,20 @@ async function main() {
 
     // ── TEST 3 — Müşteri sayaçları geri alındı mı ────────────────────────
     console.log("\nTEST 3 — Musteri sayaclari");
-    check("completedCount satis oncesine dondu (3)", voidSonrasi?.completedCount === 3,
+    // Satistan once 0, satis sonrasi 1, void sonrasi tekrar 0 olmali:
+    // randevu 'confirmed'a dondugu icin tamamlanmis randevu kalmiyor.
+    check("Satis sonrasi completedCount 1 idi", satisSonrasi?.completedCount === 1,
+      `gelen ${satisSonrasi?.completedCount}`);
+    check("Void sonrasi completedCount 0'a dondu", voidSonrasi?.completedCount === 0,
       `gelen ${voidSonrasi?.completedCount}`);
-    check("cancelledCount degismedi (1)", voidSonrasi?.cancelledCount === 1,
+    check("cancelledCount 0 (iptal edilmis randevu yok)", voidSonrasi?.cancelledCount === 0,
       `gelen ${voidSonrasi?.cancelledCount}`);
+    const gercekCompleted = await db.appointment.count({
+      where: { customerId: cust.id, status: "completed" },
+    });
+    check("I1 · completedCount == gercek completed randevu adedi",
+      voidSonrasi?.completedCount === gercekCompleted,
+      `sayac ${voidSonrasi?.completedCount} != gercek ${gercekCompleted}`);
 
     // ── TEST 4 — lastVisitAt geri alındı mı ──────────────────────────────
     console.log("\nTEST 4 — Son ziyaret tarihi");
@@ -187,8 +196,6 @@ async function main() {
     check("lastVisitAt kalan kayitlardan yeniden hesaplandi (kayit yok -> null)",
       voidSonrasi?.lastVisitAt === null,
       `gelen ${voidSonrasi?.lastVisitAt?.toISOString() ?? String(voidSonrasi?.lastVisitAt)}`);
-    check("Onceki elle atanmis deger de korunmadi (yeniden hesap dogru)",
-      voidSonrasi?.lastVisitAt?.getTime() !== eskiZiyaret.getTime(), "eski deger geri geldi");
 
     // ── TEST 5 — Ödeme kayıtları ─────────────────────────────────────────
     console.log("\nTEST 5 — Odeme kayitlari (tahsil edilmis para)");
@@ -226,8 +233,13 @@ async function main() {
     check("Yeniden satis kabul edildi (201)", yeniden.status === 201,
       `gelen ${yeniden.status} ${JSON.stringify(yeniden.body).slice(0, 90)}`);
     const sonSayac = await db.customer.findUnique({ where: { id: cust.id }, select: { completedCount: true } });
-    check("completedCount net +1 (3 -> 4), cift saymadi", sonSayac?.completedCount === 4,
+    check("completedCount net 1 (0 -> 1), cift saymadi", sonSayac?.completedCount === 1,
       `gelen ${sonSayac?.completedCount}`);
+    const gercekSon = await db.appointment.count({
+      where: { customerId: cust.id, status: "completed" },
+    });
+    check("  ...I1 hala gecerli", sonSayac?.completedCount === gercekSon,
+      `sayac ${sonSayac?.completedCount} != gercek ${gercekSon}`);
     const ciroSon = await get(`/api/cash/summary?date=${BUGUN}`);
     check(`Ciro dogru tutara esit (${DOGRU_TUTAR})`, ciroSon.realizedRevenue === DOGRU_TUTAR,
       `gelen ${ciroSon.realizedRevenue}`);

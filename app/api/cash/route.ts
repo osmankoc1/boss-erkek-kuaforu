@@ -6,6 +6,7 @@ import { calcShares, calcStatus, startOfDay, endOfDay } from "@/lib/sale";
 import { validatePhone, PHONE_ERROR } from "@/lib/phone";
 import { acquireAdvisoryLock, SALE_APPOINTMENT_LOCK } from "@/lib/advisory-lock";
 import { canCreateSaleFor, cashRejectionMessage } from "@/lib/appointment-status";
+import { recalculateCustomerCounters } from "@/lib/customer-counters";
 import { istanbulDateString } from "@/lib/tz";
 
 const saleItemSchema = z.object({
@@ -188,10 +189,11 @@ export async function POST(req: NextRequest) {
         where: { id: appointmentId },
         data: { status: "completed" },
       });
-      await tx.customer.update({
-        where: { id: appointment.customerId },
-        data: { completedCount: { increment: 1 }, lastVisitAt: saleDate },
-      });
+      // Sayaclar yeniden hesaplanir (FAZ 2 · Sira 7). Onceden kosulsuz
+      // increment yapiliyordu; randevu PATCH ile zaten 'completed'
+      // yapilmissa (Dashboard'daki "kasa kaydi eksik" akisi) ayni ziyaret
+      // IKI KEZ sayiliyordu.
+      await recalculateCustomerCounters(tx, appointment.customerId);
 
       // Pesin tahsilat odeme defterine yazilir (FAZ 2 · Sira 3).
       // Tahsilat raporlari bu defterden okunur; satis aninda alinan para da
@@ -256,10 +258,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (resolvedCustomerId) {
-    await db.customer.update({
-      where: { id: resolvedCustomerId },
-      data: { lastVisitAt: saleDate },
-    });
+    await recalculateCustomerCounters(db, resolvedCustomerId);
   }
 
   return Response.json({ sale }, { status: 201 });
