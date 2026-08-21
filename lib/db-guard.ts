@@ -132,6 +132,48 @@ export function assertWritableTestDatabase(): DbTarget {
 }
 
 /**
+ * BAKIM/ONARIM script'leri için kapı.
+ *
+ * Onarım, tanımı gereği allowlist dışı bir hedefte (production) çalışabilmeli.
+ * Bu yüzden hedef reddedilmez ama **açık onay** istenir: `REPAIR_REMOTE_OK=1`.
+ *
+ * Bu yalnızca HEDEF onayıdır. Script'in kendisi ayrıca bir `--apply` bayrağı
+ * istemelidir; onaysız çalıştırma kuru koşu (dry-run) olmalıdır. Böylece
+ * production'a yazmak için üç ayrı bilinçli adım gerekir:
+ *   1. hedef onayı  (REPAIR_REMOTE_OK=1)
+ *   2. yazma onayı  (--apply)
+ *   3. etkilenecek kayıtların açıkça sayılması (--customer=<id>)
+ */
+export function assertRepairTarget(): DbTarget {
+  const target = describeDatabaseTarget(process.env.DATABASE_URL);
+
+  if (target.kind === "missing" || target.kind === "unknown") {
+    durdur([`DURDURULDU: ${target.masked}`, "Onarim script'i icin gecerli bir hedef gerekir."]);
+  }
+
+  if (target.writeAllowed) {
+    console.log(`Hedef: ${target.masked}  [gelistirme hedefi]\n`);
+    return target;
+  }
+
+  if (process.env.REPAIR_REMOTE_OK !== "1") {
+    durdur([
+      `DURDURULDU: '${target.masked}' izinli gelistirme hedeflerinden degil.`,
+      "",
+      "Bu bir ONARIM script'i ve hedef production olabilir. Devam etmek icin",
+      "acik onay gerekir:",
+      "",
+      "  REPAIR_REMOTE_OK=1 npx dotenv -e <env-dosyasi> -- tsx <script> [--apply]",
+      "",
+      "Onay verilmedigi icin calistirilmadi.",
+    ]);
+  }
+
+  console.log(`Hedef: ${target.masked}  [ALLOWLIST DISI — onarim, acik onayla]\n`);
+  return target;
+}
+
+/**
  * Yalnızca OKUYAN script'ler için kapı.
  *
  * Allowlist dışı bir hedefte (ör. production raporu) çalışmak meşru olabilir,

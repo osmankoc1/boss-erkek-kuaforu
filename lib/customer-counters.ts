@@ -1,5 +1,4 @@
-import "server-only";
-import { db } from "@/lib/db";
+import type { PrismaClient } from "@/app/generated/prisma/client";
 
 /**
  * Müşteri randevu sayaçlarının TEK doğruluk kaynağı (FAZ 2 · Sıra 7).
@@ -25,8 +24,15 @@ import { db } from "@/lib/db";
  * içindedir ve tek kaynak orasıdır. Burada yalnızca sayım yapılır.
  */
 
-/** Transaction içinde de çalışabilmesi için asgari istemci arayüzü. */
-type CounterClient = Pick<typeof db, "appointment" | "sale" | "customer">;
+/**
+ * Transaction içinde de çalışabilmesi için asgari istemci arayüzü.
+ *
+ * Yalnızca TİP olarak PrismaClient'a bağlıdır; modülün kendisi `db`
+ * örneğini içe aktarmaz. Böylece hem uygulama rotaları (transaction
+ * client ile) hem de bakım script'leri (kendi PrismaClient'ı ile) aynı
+ * hesaplamayı kullanabilir.
+ */
+export type CounterClient = Pick<PrismaClient, "appointment" | "sale" | "customer">;
 
 /**
  * Bir müşterinin tüm randevu sayaçlarını gerçek kayıtlardan yeniden hesaplar.
