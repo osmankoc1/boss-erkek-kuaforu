@@ -1,5 +1,6 @@
 "use client";
 import { useState, useCallback, useTransition } from "react";
+import { summarizeRevenue } from "@/lib/revenue";
 import { useRouter } from "next/navigation";
 import SaleModal from "./SaleModal";
 
@@ -61,19 +62,21 @@ export default function KasaClient({ initialSales, barbers, services, selectedDa
       })
     : sales;
 
-  const activeSales = filteredSales.filter(s => s.saleStatus !== "VOIDED");
-  const totalSales = activeSales.reduce((s, r) => s + r.saleAmount, 0);
-  const totalPaid = activeSales.reduce((s, r) => s + r.paidAmount, 0);
-  const totalCredit = activeSales.reduce((s, r) => s + r.remainingAmount, 0);
+  // Ciro hesabi tek yerde: lib/revenue.ts (FAZ 2 · Sira 2).
+  // Gun Sonu ve Dashboard ayni fonksiyonu kullanir; rakamlar birebir ayni.
+  const ozet = summarizeRevenue(filteredSales);
+  const totalSales = ozet.realizedRevenue;   // Gerceklesen Ciro
+  const totalPaid = ozet.collected;          // Tahsilat
+  const totalCredit = ozet.credit;
 
   return (
     <>
       {/* Özet */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         {[
-          { label: filterBarberId ? `Satış (${barbers.find(b => b.id === filterBarberId)?.name})` : "Toplam Satış", value: totalSales, color: "text-white" },
+          { label: filterBarberId ? `Ciro (${barbers.find(b => b.id === filterBarberId)?.name})` : "Gerçekleşen Ciro", value: totalSales, color: "text-white" },
           { label: "Tahsilat", value: totalPaid, color: "text-green-400" },
-          { label: "Veresiye", value: totalCredit, color: "text-orange-400" },
+          { label: "Veresiye Kalan", value: totalCredit, color: "text-orange-400" },
         ].map((c) => (
           <div key={c.label} className="bg-[#0f0f0f] border border-[#1e1e1e] rounded-xl p-4">
             <p className="text-[11px] font-semibold text-[#6b7280] uppercase tracking-wider mb-1">{c.label}</p>

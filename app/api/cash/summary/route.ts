@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
 import { startOfDay, endOfDay } from "@/lib/sale";
+import { summarizeRevenue } from "@/lib/revenue";
 import { istanbulDateString } from "@/lib/tz";
 
 export async function GET(req: NextRequest) {
@@ -21,30 +22,27 @@ export async function GET(req: NextRequest) {
     }),
   ]);
 
-  const active = sales.filter((s) => s.saleStatus !== "VOIDED");
-  const totalSales = active.reduce((s, r) => s + r.saleAmount, 0);
-  const totalPaid = active.reduce((s, r) => s + r.paidAmount, 0);
-  const totalCredit = active.reduce((s, r) => s + r.remainingAmount, 0);
-  const totalBarberShare = active.reduce((s, r) => s + r.barberShare, 0);
-  const totalBusinessShare = active.reduce((s, r) => s + r.businessShare, 0);
-  const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
-  const netCash = totalPaid - totalExpenses;
-
-  const byMethod: Record<string, number> = {};
-  for (const s of active) {
-    byMethod[s.paymentMethod] = (byMethod[s.paymentMethod] ?? 0) + s.paidAmount;
-  }
+  // Ciro hesabi tek yerde: lib/revenue.ts (FAZ 2 · Sira 2).
+  const ozet = summarizeRevenue(sales, expenses);
 
   return Response.json({
-    totalSales,
-    totalPaid,
-    totalCredit,
-    totalBarberShare,
-    totalBusinessShare,
-    totalExpenses,
-    netCash,
-    byMethod,
-    count: active.length,
-    voidedCount: sales.length - active.length,
+    // Kanonik adlar
+    realizedRevenue: ozet.realizedRevenue,
+    collected: ozet.collected,
+    credit: ozet.credit,
+    barberShare: ozet.barberShare,
+    businessShare: ozet.businessShare,
+    expenses: ozet.expenses,
+    netCash: ozet.netCash,
+    byMethod: ozet.byMethod,
+    count: ozet.count,
+    voidedCount: ozet.voidedCount,
+    // Eski adlar (geriye donuk uyum)
+    totalSales: ozet.realizedRevenue,
+    totalPaid: ozet.collected,
+    totalCredit: ozet.credit,
+    totalBarberShare: ozet.barberShare,
+    totalBusinessShare: ozet.businessShare,
+    totalExpenses: ozet.expenses,
   });
 }

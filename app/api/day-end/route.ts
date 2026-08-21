@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
 import { startOfDay, endOfDay } from "@/lib/sale";
+import { summarizeRevenue, summarizeByBarber } from "@/lib/revenue";
 import { istanbulDateString } from "@/lib/tz";
 
 export async function GET(req: NextRequest) {
@@ -16,48 +17,30 @@ export async function GET(req: NextRequest) {
     db.expense.findMany({ where: { expenseDate: { gte: startOfDay(d), lte: endOfDay(d) } } }),
   ]);
 
-  const active = sales.filter((s) => s.saleStatus !== "VOIDED");
-  const totalSales = active.reduce((s, r) => s + r.saleAmount, 0);
-  const totalPaid = active.reduce((s, r) => s + r.paidAmount, 0);
-  const totalCredit = active.reduce((s, r) => s + r.remainingAmount, 0);
-  const totalBarberShare = active.reduce((s, r) => s + r.barberShare, 0);
-  const totalBusinessShare = active.reduce((s, r) => s + r.businessShare, 0);
-  const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
-  const netCash = totalPaid - totalExpenses;
-
-  const byMethod: Record<string, number> = {};
-  for (const s of active) byMethod[s.paymentMethod] = (byMethod[s.paymentMethod] ?? 0) + s.paidAmount;
-
-  // Çalışan bazlı
-  const barberMap = new Map<string, {
-    barberId: string; barberName: string; workerType: string; commissionRate: number;
-    count: number; totalSale: number; barberShare: number; businessShare: number;
-    totalPaid: number; totalCredit: number;
-  }>();
-
-  for (const s of active) {
-    if (!barberMap.has(s.barberId)) {
-      barberMap.set(s.barberId, {
-        barberId: s.barberId, barberName: s.barberName,
-        workerType: s.barberWorkerType, commissionRate: s.barberCommissionRate,
-        count: 0, totalSale: 0, barberShare: 0, businessShare: 0, totalPaid: 0, totalCredit: 0,
-      });
-    }
-    const b = barberMap.get(s.barberId)!;
-    b.count++;
-    b.totalSale += s.saleAmount;
-    b.barberShare += s.barberShare;
-    b.businessShare += s.businessShare;
-    b.totalPaid += s.paidAmount;
-    b.totalCredit += s.remainingAmount;
-  }
+  // Ciro hesabi tek yerde: lib/revenue.ts (FAZ 2 · Sira 2).
+  const ozet = summarizeRevenue(sales, expenses);
+  const byBarber = summarizeByBarber(sales);
 
   return Response.json({
     date,
-    totalSales, totalPaid, totalCredit, totalBarberShare, totalBusinessShare,
-    totalExpenses, netCash, byMethod,
-    count: active.length, voidedCount: sales.length - active.length,
-    byBarber: Array.from(barberMap.values()),
+    // Kanonik adlar
+    realizedRevenue: ozet.realizedRevenue,
+    collected: ozet.collected,
+    credit: ozet.credit,
+    barberShare: ozet.barberShare,
+    businessShare: ozet.businessShare,
+    netCash: ozet.netCash,
+    byMethod: ozet.byMethod,
+    count: ozet.count,
+    voidedCount: ozet.voidedCount,
+    byBarber,
+    // Eski adlar (geriye donuk uyum)
+    totalSales: ozet.realizedRevenue,
+    totalPaid: ozet.collected,
+    totalCredit: ozet.credit,
+    totalBarberShare: ozet.barberShare,
+    totalBusinessShare: ozet.businessShare,
+    totalExpenses: ozet.expenses,
     expenses,
   });
 }

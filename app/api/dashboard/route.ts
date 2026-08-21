@@ -1,5 +1,6 @@
 import { getSession } from "@/lib/session";
 import { db } from "@/lib/db";
+import { summarizeRevenue, expectedRevenue } from "@/lib/revenue";
 import { startOfIstanbulDay, startOfNextIstanbulDay, startOfIstanbulWeek, startOfIstanbulMonth, startOfNextIstanbulMonth, addIstanbulDays } from "@/lib/tz";
 import type { NextRequest } from "next/server";
 
@@ -83,26 +84,31 @@ export async function GET(req: NextRequest) {
     }),
   ]);
 
-  // --- Gelir ---
-  const rangeCompleted = rangeAppts.filter((a) => a.status === "completed");
-  const rangeRevenue = rangeCompleted.reduce((s, a) => s + a.appointmentPrice, 0);
-  const totalRevenue = allCompletedAppts.reduce((s, a) => s + a.appointmentPrice, 0);
-  const avgTicket = rangeCompleted.length > 0 ? rangeRevenue / rangeCompleted.length : 0;
+  // --- Gerçekleşen Ciro: TEK KAYNAK = Sale (FAZ 2 · Sıra 2) ---
+  // `Appointment.appointmentPrice` ciro DEĞİLDİR; aşağıda "Beklenen Gelir"
+  // olarak ayrı hesaplanır.
+  const SALE_FIELDS = {
+    saleStatus: true, saleAmount: true, paidAmount: true, remainingAmount: true,
+    barberShare: true, businessShare: true, paymentMethod: true,
+  } as const;
 
-  const todayRevenue = (await db.appointment.findMany({
-    where: { date: { gte: todayStart, lt: todayEnd }, status: "completed" },
-    select: { appointmentPrice: true },
-  })).reduce((s, a) => s + a.appointmentPrice, 0);
+  const [rangeSales, todaySales, weekSales, monthSales] = await Promise.all([
+    db.sale.findMany({ where: { saleDate: { gte: rangeStart, lt: rangeEnd } }, select: SALE_FIELDS }),
+    db.sale.findMany({ where: { saleDate: { gte: todayStart, lt: todayEnd } }, select: SALE_FIELDS }),
+    db.sale.findMany({ where: { saleDate: { gte: weekStart, lt: weekEnd } }, select: SALE_FIELDS }),
+    db.sale.findMany({ where: { saleDate: { gte: monthStart, lt: monthEnd } }, select: SALE_FIELDS }),
+  ]);
 
-  const weekRevenue = (await db.appointment.findMany({
-    where: { date: { gte: weekStart, lt: weekEnd }, status: "completed" },
-    select: { appointmentPrice: true },
-  })).reduce((s, a) => s + a.appointmentPrice, 0);
+  const rangeSummary = summarizeRevenue(rangeSales);
+  const todaySummary = summarizeRevenue(todaySales);
+  const weekSummary = summarizeRevenue(weekSales);
+  const monthSummary = summarizeRevenue(monthSales);
 
-  const monthRevenue = (await db.appointment.findMany({
-    where: { date: { gte: monthStart, lt: monthEnd }, status: "completed" },
-    select: { appointmentPrice: true },
-  })).reduce((s, a) => s + a.appointmentPrice, 0);
+  const avgTicket = rangeSummary.count > 0 ? rangeSummary.realizedRevenue / rangeSummary.count : 0;
+
+  // --- Beklenen Gelir (randevu potansiyeli) — ciro DEĞİL ---
+  const rangeExpected = expectedRevenue(rangeAppts);
+  const totalExpected = expectedRevenue(allCompletedAppts.map((a) => ({ status: "completed", appointmentPrice: a.appointmentPrice })));
 
   // --- Berber performansı ---
   const barberMap = new Map(barbers.map((b) => [b.id, b]));
@@ -170,13 +176,23 @@ export async function GET(req: NextRequest) {
 
   return Response.json({
     range: { label: range, start: rangeStart, end: rangeEnd },
+    // Gerçekleşen Ciro — Sale tabanlı, VOID hariç, walk-in dahil.
     revenue: {
-      range: rangeRevenue,
-      today: todayRevenue,
-      week: weekRevenue,
-      month: monthRevenue,
-      total: totalRevenue,
+      range: rangeSummary.realizedRevenue,
+      today: todaySummary.realizedRevenue,
+      week: weekSummary.realizedRevenue,
+      month: monthSummary.realizedRevenue,
       avg: avgTicket,
+      realized: rangeSummary.realizedRevenue,
+      collected: rangeSummary.collected,
+      credit: rangeSummary.credit,
+      count: rangeSummary.count,
+      voidedCount: rangeSummary.voidedCount,
+    },
+    // Beklenen Gelir — randevu potansiyeli. CİRO DEĞİLDİR.
+    expected: {
+      range: rangeExpected,
+      total: totalExpected,
     },
     today: {
       total: todayAppts.length,

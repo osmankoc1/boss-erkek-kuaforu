@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { summarizeRevenue, expectedRevenue } from "@/lib/revenue";
 import { startOfIstanbulDay, startOfNextIstanbulDay, startOfIstanbulWeek, startOfIstanbulMonth, startOfNextIstanbulMonth, addIstanbulDays } from "@/lib/tz";
 import { formatDate, formatPrice } from "@/lib/utils";
 import { AppointmentAreaChart, HoursBarChart, DaysBarChart } from "./DashboardCharts";
@@ -71,20 +72,31 @@ async function getStats(range: string, customFrom?: string, customTo?: string) {
     }),
   ]);
 
-  // Revenue
-  const rangeCompleted = rangeAppts.filter((a) => a.status === "completed");
-  const rangeRevenue = rangeCompleted.reduce((s, a) => s + a.appointmentPrice, 0);
-  const totalRevenue = allCompleted.reduce((s, a) => s + a.appointmentPrice, 0);
-  const avgTicket = rangeCompleted.length > 0 ? rangeRevenue / rangeCompleted.length : 0;
+  // Gerçekleşen Ciro — TEK KAYNAK = Sale (FAZ 2 · Sıra 2).
+  // `Appointment.appointmentPrice` ciro DEĞİLDİR; "Beklenen Gelir" olarak
+  // aşağıda ayrı hesaplanır.
+  const SALE_FIELDS = {
+    saleStatus: true, saleAmount: true, paidAmount: true, remainingAmount: true,
+    barberShare: true, businessShare: true, paymentMethod: true,
+  } as const;
 
-  const [todayRev, weekRev, monthRev] = await Promise.all([
-    db.appointment.findMany({ where: { date: { gte: todayStart, lt: todayEnd }, status: "completed" }, select: { appointmentPrice: true } }),
-    db.appointment.findMany({ where: { date: { gte: weekStart, lt: weekEnd }, status: "completed" }, select: { appointmentPrice: true } }),
-    db.appointment.findMany({ where: { date: { gte: monthStart, lt: monthEnd }, status: "completed" }, select: { appointmentPrice: true } }),
+  const [rangeSales, todaySales, weekSales, monthSales] = await Promise.all([
+    db.sale.findMany({ where: { saleDate: { gte: rangeStart, lt: rangeEnd } }, select: SALE_FIELDS }),
+    db.sale.findMany({ where: { saleDate: { gte: todayStart, lt: todayEnd } }, select: SALE_FIELDS }),
+    db.sale.findMany({ where: { saleDate: { gte: weekStart, lt: weekEnd } }, select: SALE_FIELDS }),
+    db.sale.findMany({ where: { saleDate: { gte: monthStart, lt: monthEnd } }, select: SALE_FIELDS }),
   ]);
-  const todayRevenue = todayRev.reduce((s, a) => s + a.appointmentPrice, 0);
-  const weekRevenue = weekRev.reduce((s, a) => s + a.appointmentPrice, 0);
-  const monthRevenue = monthRev.reduce((s, a) => s + a.appointmentPrice, 0);
+  const rangeSummary = summarizeRevenue(rangeSales);
+  const todaySummary = summarizeRevenue(todaySales);
+  const weekSummary = summarizeRevenue(weekSales);
+  const monthSummary = summarizeRevenue(monthSales);
+  const avgTicket = rangeSummary.count > 0 ? rangeSummary.realizedRevenue / rangeSummary.count : 0;
+
+  // Beklenen Gelir (randevu potansiyeli) — ciro değildir.
+  const rangeExpected = expectedRevenue(rangeAppts);
+  const totalExpected = expectedRevenue(
+    allCompleted.map((a) => ({ status: "completed", appointmentPrice: a.appointmentPrice }))
+  );
 
   // Barber performance
   const barberMap = new Map(barbers.map((b) => [b.id, b]));
@@ -162,7 +174,17 @@ async function getStats(range: string, customFrom?: string, customTo?: string) {
   return {
     rangeStart,
     rangeEnd,
-    revenue: { range: rangeRevenue, today: todayRevenue, week: weekRevenue, month: monthRevenue, total: totalRevenue, avg: avgTicket },
+    revenue: {
+      range: rangeSummary.realizedRevenue,
+      today: todaySummary.realizedRevenue,
+      week: weekSummary.realizedRevenue,
+      month: monthSummary.realizedRevenue,
+      avg: avgTicket,
+      collected: rangeSummary.collected,
+      credit: rangeSummary.credit,
+      count: rangeSummary.count,
+    },
+    expected: { range: rangeExpected, total: totalExpected },
     today: {
       total: todayAppts.length,
       pending: todayAppts.filter((a) => a.status === "pending").length,
@@ -269,15 +291,30 @@ export default async function DashboardPage({
         </span>
       </div>
 
-      {/* ─── BÖLÜM 1: Gelir ─── */}
-      <SectionTitle>Gelir Özeti</SectionTitle>
+      {/* ─── BÖLÜM 1: Gerçekleşen Ciro (kaynak: kasa satışları) ─── */}
+      <SectionTitle>Gerçekleşen Ciro</SectionTitle>
+      <p className="text-[11px] text-[#6b7280] -mt-3 mb-3">
+        Kasaya girilen satışlardan hesaplanır. İptal (void) edilen satışlar hariçtir;
+        randevusuz (walk-in) satışlar dahildir.
+      </p>
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
-        <RevenueCard label="Dönem Geliri" value={stats.revenue.range} highlight />
+        <RevenueCard label="Dönem Cirosu" value={stats.revenue.range} highlight />
         <RevenueCard label="Bugün" value={stats.revenue.today} />
         <RevenueCard label="Bu Hafta" value={stats.revenue.week} />
         <RevenueCard label="Bu Ay" value={stats.revenue.month} />
-        <RevenueCard label="Toplam Ciro" value={stats.revenue.total} />
-        <RevenueCard label="Ort. Randevu" value={stats.revenue.avg} sub="tutarı" />
+        <RevenueCard label="Dönem Tahsilatı" value={stats.revenue.collected} sub="alınan para" />
+        <RevenueCard label="Ort. Satış" value={stats.revenue.avg} sub={`${stats.revenue.count} işlem`} />
+      </div>
+
+      {/* ─── BÖLÜM 1a: Beklenen Gelir (kaynak: randevular) ─── */}
+      <SectionTitle>Beklenen Gelir</SectionTitle>
+      <p className="text-[11px] text-[#6b7280] -mt-3 mb-3">
+        Tamamlanmış randevuların liste tutarı. <strong>Ciro değildir</strong> — kasa kaydı
+        girilmemiş, tutar kasada değişmiş veya satış iptal edilmiş olabilir.
+      </p>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        <RevenueCard label="Dönem Beklenen Geliri" value={stats.expected.range} sub="randevu potansiyeli" />
+        <RevenueCard label="Tüm Zamanlar Beklenen" value={stats.expected.total} sub="randevu potansiyeli" />
       </div>
 
       {/* ─── BÖLÜM 1b: Kasa Özeti ─── */}
@@ -294,10 +331,10 @@ export default async function DashboardPage({
         </div>
       )}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        <RevenueCard label="Bugün Satış" value={stats.kasa.todaySales} sub={`${stats.kasa.todayCount} işlem`} />
-        <RevenueCard label="Bugün Tahsilat" value={stats.kasa.todayCollection} highlight />
-        <RevenueCard label="Bugün Veresiye" value={stats.kasa.todayCredit} />
-        <RevenueCard label="Bu Ay Satış" value={stats.kasa.monthSales} />
+        <RevenueCard label="Bugünkü Ciro" value={stats.kasa.todaySales} sub={`${stats.kasa.todayCount} işlem`} />
+        <RevenueCard label="Bugün Tahsil Edilen" value={stats.kasa.todayCollection} sub="kasaya giren" highlight />
+        <RevenueCard label="Bugün Veresiye Kalan" value={stats.kasa.todayCredit} sub="tahsil edilmeyen" />
+        <RevenueCard label="Bu Ayki Ciro" value={stats.kasa.monthSales} />
       </div>
 
       {/* ─── BÖLÜM 2: Bugün durumu ─── */}

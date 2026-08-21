@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { startOfDay, endOfDay } from "@/lib/sale";
+import { summarizeRevenue, summarizeByBarber, activeSales } from "@/lib/revenue";
 import { istanbulDateString } from "@/lib/tz";
 import ExpenseSection from "./ExpenseSection";
 
@@ -22,47 +23,35 @@ export default async function GunSonuPage({ searchParams }: { searchParams: Sear
     db.expense.findMany({ where: { expenseDate: { gte: startOfDay(d), lte: endOfDay(d) } }, orderBy: { expenseDate: "desc" } }),
   ]);
 
-  const active = sales.filter((s) => s.saleStatus !== "VOIDED");
-  const totalSales = active.reduce((s, r) => s + r.saleAmount, 0);
-  const totalPaid = active.reduce((s, r) => s + r.paidAmount, 0);
-  const totalCredit = active.reduce((s, r) => s + r.remainingAmount, 0);
-  const totalBarberShare = active.reduce((s, r) => s + r.barberShare, 0);
-  const totalBusinessShare = active.reduce((s, r) => s + r.businessShare, 0);
-  const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
-  const netCash = totalPaid - totalExpenses;
+  // Ciro hesabi tek yerde: lib/revenue.ts (FAZ 2 · Sira 2).
+  // Kasa, Gun Sonu ve Dashboard ayni fonksiyondan beslenir.
+  const ozet = summarizeRevenue(sales, expenses);
+  const totalSales = ozet.realizedRevenue;   // Gerceklesen Ciro
+  const totalPaid = ozet.collected;          // Tahsilat
+  const totalCredit = ozet.credit;
+  const totalBarberShare = ozet.barberShare;
+  const totalBusinessShare = ozet.businessShare;
+  const totalExpenses = ozet.expenses;
+  const netCash = ozet.netCash;
+  const byMethod = ozet.byMethod;
+  const active = activeSales(sales);   // ekrandaki kirilimlar icin
 
-  const byMethod: Record<string, number> = {};
-  for (const s of active) byMethod[s.paymentMethod] = (byMethod[s.paymentMethod] ?? 0) + s.paidAmount;
-
-  // Çalışan bazlı
-  const barberMap = new Map<string, {
-    barberId: string; barberName: string; workerType: string; commissionRate: number;
-    count: number; totalSale: number; barberShare: number; businessShare: number;
-    totalPaid: number; totalCredit: number;
-  }>();
-
-  for (const s of active) {
-    if (!barberMap.has(s.barberId)) {
-      barberMap.set(s.barberId, {
-        barberId: s.barberId, barberName: s.barberName,
-        workerType: s.barberWorkerType, commissionRate: s.barberCommissionRate,
-        count: 0, totalSale: 0, barberShare: 0, businessShare: 0, totalPaid: 0, totalCredit: 0,
-      });
-    }
-    const b = barberMap.get(s.barberId)!;
-    b.count++;
-    b.totalSale += s.saleAmount;
-    b.barberShare += s.barberShare;
-    b.businessShare += s.businessShare;
-    b.totalPaid += s.paidAmount;
-    b.totalCredit += s.remainingAmount;
-  }
-
-  const byBarber = Array.from(barberMap.values());
+  const byBarber = summarizeByBarber(sales).map((b) => ({
+    barberId: b.barberId,
+    barberName: b.barberName,
+    workerType: b.workerType,
+    commissionRate: b.commissionRate,
+    count: b.count,
+    totalSale: b.realizedRevenue,
+    barberShare: b.barberShare,
+    businessShare: b.businessShare,
+    totalPaid: b.collected,
+    totalCredit: b.credit,
+  }));
 
   const summaryCards = [
-    { label: "Toplam Satış", value: totalSales, color: "text-white", sub: `${active.length} işlem` },
-    { label: "Toplam Tahsilat", value: totalPaid, color: "text-green-400", sub: "Nakit + Kart + Havale" },
+    { label: "Gerçekleşen Ciro", value: totalSales, color: "text-white", sub: `${active.length} işlem` },
+    { label: "Tahsilat", value: totalPaid, color: "text-green-400", sub: "kasaya giren para" },
     { label: "Toplam Gider", value: totalExpenses, color: "text-red-400", sub: `${expenses.length} gider kalemi` },
     { label: "Net Kasa", value: netCash, color: netCash >= 0 ? "text-[#c9762c]" : "text-red-400", sub: "Tahsilat − Gider" },
     { label: "Veresiye", value: totalCredit, color: "text-orange-400", sub: "Açık alacaklar" },
