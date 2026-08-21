@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
 import { startOfDay, endOfDay } from "@/lib/sale";
+import { addIstanbulDays, startOfIstanbulMonth } from "@/lib/tz";
 
 export async function GET(req: NextRequest) {
   const unauthorized = await requireAdmin();
@@ -16,16 +17,17 @@ export async function GET(req: NextRequest) {
   let dateFrom: Date;
   let dateTo: Date = endOfDay(now);
 
+  // Donem sinirlari Europe/Istanbul takvimine gore (bkz. lib/tz.ts).
   if (range === "custom" && from && to) {
-    dateFrom = startOfDay(new Date(from));
-    dateTo = endOfDay(new Date(to));
+    dateFrom = startOfDay(from);
+    dateTo = endOfDay(to);
   } else if (range === "yesterday") {
-    const y = new Date(now); y.setDate(y.getDate() - 1);
+    const y = addIstanbulDays(now, -1);
     dateFrom = startOfDay(y); dateTo = endOfDay(y);
   } else if (range === "week") {
-    dateFrom = new Date(now); dateFrom.setDate(dateFrom.getDate() - 6); dateFrom.setHours(0, 0, 0, 0);
+    dateFrom = addIstanbulDays(now, -6);
   } else if (range === "month") {
-    dateFrom = new Date(now.getFullYear(), now.getMonth(), 1);
+    dateFrom = startOfIstanbulMonth(now);
   } else {
     dateFrom = startOfDay(now);
   }

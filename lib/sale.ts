@@ -1,3 +1,5 @@
+import { startOfIstanbulDay, endOfIstanbulDay } from "./tz";
+
 export function calcShares(
   saleAmount: number,
   workerType: string,
@@ -16,14 +18,20 @@ export function calcStatus(paidAmount: number, saleAmount: number): string {
   return "CREDIT";
 }
 
-export function startOfDay(d: Date): Date {
-  const r = new Date(d);
-  r.setHours(0, 0, 0, 0);
-  return r;
+/**
+ * Kasa/rapor gun sinirlari — Europe/Istanbul.
+ *
+ * Onceden `setHours(0,0,0,0)` ile sunucunun yerel saatine gore kuruluyordu;
+ * Vercel UTC calistigi icin bir "gun" 03:00 Istanbul'da basliyordu. Artik
+ * sinirlar `lib/tz.ts` uzerinden acikca Istanbul takvimine gore hesaplanir.
+ *
+ * Metin girdi ("YYYY-MM-DD") dogrudan takvim gunu sayilir; boylece cagiranin
+ * `new Date(dateString)` ile UTC gece yarisina cevirmesi gerekmez.
+ */
+export function startOfDay(d: Date | string): Date {
+  return startOfIstanbulDay(d);
 }
 
-export function endOfDay(d: Date): Date {
-  const r = new Date(d);
-  r.setHours(23, 59, 59, 999);
-  return r;
+export function endOfDay(d: Date | string): Date {
+  return endOfIstanbulDay(d);
 }

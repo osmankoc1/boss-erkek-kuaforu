@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
 import { startOfDay, endOfDay } from "@/lib/sale";
+import { addIstanbulDays, startOfIstanbulMonth } from "@/lib/tz";
 
 export async function GET(req: NextRequest) {
   const unauthorized = await requireAdmin();
@@ -20,11 +21,12 @@ export async function GET(req: NextRequest) {
   if (search) where.customerName = { contains: search, mode: "insensitive" };
 
   if (range !== "all") {
+    // Donem sinirlari Europe/Istanbul takvimine gore (bkz. lib/tz.ts).
     const now = new Date();
     let from: Date;
     if (range === "today") from = startOfDay(now);
-    else if (range === "week") { from = new Date(now); from.setDate(from.getDate() - 7); }
-    else { from = new Date(now); from.setDate(1); from.setHours(0, 0, 0, 0); }
+    else if (range === "week") from = addIstanbulDays(now, -7);
+    else from = startOfIstanbulMonth(now);
     where.saleDate = { gte: from, lte: endOfDay(now) };
   }
 

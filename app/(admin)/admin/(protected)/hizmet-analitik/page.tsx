@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { startOfIstanbulDay, endOfIstanbulDay, startOfIstanbulMonth, addIstanbulDays, istanbulDateString } from "@/lib/tz";
 import HizmetAnalitikClient from "./HizmetAnalitikClient";
 
 export const metadata = { title: "Hizmet Analitiği — BOSS Admin" };
@@ -6,20 +7,19 @@ export const metadata = { title: "Hizmet Analitiği — BOSS Admin" };
 type SearchParams = Promise<{ range?: string; from?: string; to?: string }>;
 
 function rangeFromParam(range: string, from?: string, to?: string): { start: Date; end: Date } {
+  // Donem sinirlari Europe/Istanbul takvimine gore (bkz. lib/tz.ts).
   const now = new Date();
-  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  const end = endOfIstanbulDay(now);
   if (range === "custom" && from && to) {
-    return { start: new Date(from + "T00:00:00"), end: new Date(to + "T23:59:59") };
+    return { start: startOfIstanbulDay(from), end: endOfIstanbulDay(to) };
   }
   if (range === "month") {
-    return { start: new Date(now.getFullYear(), now.getMonth(), 1), end };
+    return { start: startOfIstanbulMonth(now), end };
   }
   if (range === "30d") {
-    const start = new Date(now); start.setDate(start.getDate() - 29); start.setHours(0, 0, 0, 0);
-    return { start, end };
+    return { start: addIstanbulDays(now, -29), end };
   }
-  const start = new Date(now); start.setDate(start.getDate() - 6); start.setHours(0, 0, 0, 0);
-  return { start, end };
+  return { start: addIstanbulDays(now, -6), end };
 }
 
 export default async function HizmetAnalitikPage({ searchParams }: { searchParams: SearchParams }) {
@@ -65,7 +65,7 @@ export default async function HizmetAnalitikPage({ searchParams }: { searchParam
   // Daily series
   const dailyMap: Record<string, { date: string; revenue: number; count: number }> = {};
   for (const s of sales) {
-    const d = s.saleDate.toISOString().slice(0, 10);
+    const d = istanbulDateString(s.saleDate);
     if (!dailyMap[d]) dailyMap[d] = { date: d, revenue: 0, count: 0 };
     dailyMap[d].revenue += s.saleAmount;
     dailyMap[d].count++;

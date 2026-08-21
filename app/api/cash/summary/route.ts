@@ -2,14 +2,15 @@ import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
 import { startOfDay, endOfDay } from "@/lib/sale";
+import { istanbulDateString } from "@/lib/tz";
 
 export async function GET(req: NextRequest) {
   const unauthorized = await requireAdmin();
   if (unauthorized) return unauthorized;
 
   const { searchParams } = req.nextUrl;
-  const date = searchParams.get("date") ?? new Date().toISOString().slice(0, 10);
-  const d = new Date(date);
+  const date = searchParams.get("date") ?? istanbulDateString();
+  const d = date;
 
   const [sales, expenses] = await Promise.all([
     db.sale.findMany({

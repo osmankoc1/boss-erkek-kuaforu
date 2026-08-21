@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { startOfDay, endOfDay } from "@/lib/sale";
+import { istanbulDateString } from "@/lib/tz";
 import ExpenseSection from "./ExpenseSection";
 
 export const metadata = { title: "Gün Sonu — BOSS Admin" };
@@ -12,9 +13,9 @@ const METHOD_LABELS: Record<string, string> = {
 
 export default async function GunSonuPage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = istanbulDateString();
   const selectedDate = params.date ?? today;
-  const d = new Date(selectedDate);
+  const d = selectedDate;
 
   const [sales, expenses] = await Promise.all([
     db.sale.findMany({ where: { saleDate: { gte: startOfDay(d), lte: endOfDay(d) } } }),

@@ -21,8 +21,7 @@ export async function GET(req: NextRequest) {
 
   const where: Record<string, unknown> = {};
   if (date) {
-    const d = new Date(date);
-    where.expenseDate = { gte: startOfDay(d), lte: endOfDay(d) };
+    where.expenseDate = { gte: startOfDay(date), lte: endOfDay(date) };
   }
   if (category) where.category = category;
 

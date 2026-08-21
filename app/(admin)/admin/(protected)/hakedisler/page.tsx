@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { startOfDay, endOfDay } from "@/lib/sale";
+import { addIstanbulDays, startOfIstanbulMonth, istanbulDateString } from "@/lib/tz";
 
 export const metadata = { title: "Hakedişler — BOSS Admin" };
 
@@ -15,16 +16,17 @@ export default async function HakedislerPage({ searchParams }: { searchParams: S
   let dateFrom: Date;
   let dateTo: Date = endOfDay(now);
 
+  // Donem sinirlari Europe/Istanbul takvimine gore (bkz. lib/tz.ts).
   if (range === "custom" && fromParam && toParam) {
-    dateFrom = startOfDay(new Date(fromParam));
-    dateTo = endOfDay(new Date(toParam));
+    dateFrom = startOfDay(fromParam);
+    dateTo = endOfDay(toParam);
   } else if (range === "yesterday") {
-    const y = new Date(now); y.setDate(y.getDate() - 1);
+    const y = addIstanbulDays(now, -1);
     dateFrom = startOfDay(y); dateTo = endOfDay(y);
   } else if (range === "week") {
-    dateFrom = new Date(now); dateFrom.setDate(dateFrom.getDate() - 6); dateFrom.setHours(0, 0, 0, 0);
+    dateFrom = addIstanbulDays(now, -6);
   } else if (range === "month") {
-    dateFrom = new Date(now.getFullYear(), now.getMonth(), 1);
+    dateFrom = startOfIstanbulMonth(now);
   } else {
     dateFrom = startOfDay(now);
   }
@@ -68,7 +70,7 @@ export default async function HakedislerPage({ searchParams }: { searchParams: S
     { value: "custom", label: "Özel" },
   ];
 
-  const today = now.toISOString().slice(0, 10);
+  const today = istanbulDateString(now);
   const fromValue = fromParam ?? today;
   const toValue = toParam ?? today;
 

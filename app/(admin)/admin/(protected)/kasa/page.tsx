@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { startOfDay, endOfDay } from "@/lib/sale";
+import { istanbulDateString } from "@/lib/tz";
 import KasaClient from "./KasaClient";
 
 export const metadata = { title: "Günlük Kasa — BOSS Admin" };
@@ -8,9 +9,9 @@ type SearchParams = Promise<{ date?: string }>;
 
 export default async function KasaPage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = istanbulDateString();
   const selectedDate = params.date ?? today;
-  const d = new Date(selectedDate);
+  const d = selectedDate;
 
   const [sales, barbers, services] = await Promise.all([
     db.sale.findMany({

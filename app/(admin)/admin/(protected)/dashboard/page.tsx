@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { startOfIstanbulDay, startOfNextIstanbulDay, startOfIstanbulWeek, startOfIstanbulMonth, startOfNextIstanbulMonth, addIstanbulDays } from "@/lib/tz";
 import { formatDate, formatPrice } from "@/lib/utils";
 import { AppointmentAreaChart, HoursBarChart, DaysBarChart } from "./DashboardCharts";
 
@@ -30,22 +31,22 @@ function calcOccupancy(
 }
 
 async function getStats(range: string, customFrom?: string, customTo?: string) {
+  // Tum gun/hafta/ay sinirlari Europe/Istanbul takvimine gore (bkz. lib/tz.ts).
   const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const todayEnd = new Date(todayStart.getTime() + 86400000);
-  const weekStart = new Date(todayStart);
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-  const weekEnd = new Date(weekStart.getTime() + 7 * 86400000);
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
+  const todayStart = startOfIstanbulDay(now);
+  const todayEnd = startOfNextIstanbulDay(now);
+  const weekStart = startOfIstanbulWeek(now);
+  const weekEnd = addIstanbulDays(weekStart, 7);
+  const monthStart = startOfIstanbulMonth(now);
+  const monthEnd = startOfNextIstanbulMonth(now);
+  const thirtyDaysAgo = addIstanbulDays(now, -30);
 
   let rangeStart: Date, rangeEnd: Date;
   if (range === "today") { rangeStart = todayStart; rangeEnd = todayEnd; }
   else if (range === "week") { rangeStart = weekStart; rangeEnd = weekEnd; }
   else if (range === "custom" && customFrom && customTo) {
-    rangeStart = new Date(customFrom);
-    rangeEnd = new Date(new Date(customTo).getTime() + 86400000);
+    rangeStart = startOfIstanbulDay(customFrom);
+    rangeEnd = startOfNextIstanbulDay(customTo);
   } else { rangeStart = monthStart; rangeEnd = monthEnd; }
 
   const [rangeAppts, todayAppts, allCompleted, barbers, last30Days, pendingAppts] = await Promise.all([

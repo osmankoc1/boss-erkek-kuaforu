@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { startOfDay, endOfDay } from "@/lib/sale";
+import { addIstanbulDays, startOfIstanbulMonth } from "@/lib/tz";
 import { notFound } from "next/navigation";
 import BarberEditButton from "./BarberEditButton";
 
@@ -45,19 +46,20 @@ export default async function BarberDetailPage({
   let dateFrom: Date;
   let dateTo: Date = endOfDay(now);
 
+  // Donem sinirlari Europe/Istanbul takvimine gore (bkz. lib/tz.ts).
   if (range === "custom" && sp.from && sp.to) {
-    dateFrom = startOfDay(new Date(sp.from));
-    dateTo = endOfDay(new Date(sp.to));
+    dateFrom = startOfDay(sp.from);
+    dateTo = endOfDay(sp.to);
   } else if (range === "today") {
     dateFrom = startOfDay(now);
   } else if (range === "yesterday") {
-    const y = new Date(now); y.setDate(y.getDate() - 1);
+    const y = addIstanbulDays(now, -1);
     dateFrom = startOfDay(y); dateTo = endOfDay(y);
   } else if (range === "week") {
-    dateFrom = new Date(now); dateFrom.setDate(dateFrom.getDate() - 6); dateFrom.setHours(0, 0, 0, 0);
+    dateFrom = addIstanbulDays(now, -6);
   } else {
     // month
-    dateFrom = new Date(now.getFullYear(), now.getMonth(), 1);
+    dateFrom = startOfIstanbulMonth(now);
   }
 
   const barber = await db.barber.findUnique({ where: { id } });

@@ -5,6 +5,7 @@ import { requireAdmin } from "@/lib/dal";
 import { calcShares, calcStatus, startOfDay, endOfDay } from "@/lib/sale";
 import { validatePhone, PHONE_ERROR } from "@/lib/phone";
 import { acquireAdvisoryLock, SALE_APPOINTMENT_LOCK } from "@/lib/advisory-lock";
+import { istanbulDateString } from "@/lib/tz";
 
 const saleItemSchema = z.object({
   serviceId: z.string().optional().nullable(),
@@ -50,13 +51,8 @@ export async function GET(req: NextRequest) {
   if (appointmentId) {
     where.appointmentId = appointmentId;
   } else {
-    if (date) {
-      const d = new Date(date);
-      where.saleDate = { gte: startOfDay(d), lte: endOfDay(d) };
-    } else {
-      const today = new Date();
-      where.saleDate = { gte: startOfDay(today), lte: endOfDay(today) };
-    }
+    const gun = date ?? istanbulDateString();
+    where.saleDate = { gte: startOfDay(gun), lte: endOfDay(gun) };
     if (barberId) where.barberId = barberId;
     if (status) where.saleStatus = status;
   }
