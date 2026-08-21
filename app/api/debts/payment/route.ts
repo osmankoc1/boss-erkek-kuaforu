@@ -32,12 +32,18 @@ export async function POST(req: NextRequest) {
   const newRemaining = Math.round((sale.saleAmount - capped) * 100) / 100;
   const newStatus = calcStatus(capped, sale.saleAmount);
 
+  // Deftere satisa UYGULANAN tutar yazilir; boylece
+  // Σ(odeme defteri) == sale.paidAmount degismezi korunur.
+  // Kalan borctan fazla odeme girilirse fark burada duser — bunu 400 ile
+  // reddetmek FAZ 2 · Sira 6'nin konusudur.
+  const applied = Math.round((capped - sale.paidAmount) * 100) / 100;
+
   const [payment, updatedSale] = await db.$transaction([
     db.customerPayment.create({
       data: {
         customerId,
         saleId,
-        amount,
+        amount: applied,
         paymentMethod,
         note: note ?? null,
       },

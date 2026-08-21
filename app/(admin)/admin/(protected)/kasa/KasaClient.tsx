@@ -30,9 +30,15 @@ type Props = {
   barbers: Barber[];
   services: Service[];
   selectedDate: string;
+  /**
+   * Seçili günde ALINAN para (ödeme defteri toplamı — FAZ 2 · Sıra 3).
+   * Satışın gününden bağımsızdır: dünkü veresiyenin bugünkü tahsilatı
+   * bugüne yazılır. Bu yüzden berber filtresine tabi değildir.
+   */
+  dayCollected: number;
 };
 
-export default function KasaClient({ initialSales, barbers, services, selectedDate }: Props) {
+export default function KasaClient({ initialSales, barbers, services, selectedDate, dayCollected }: Props) {
   const router = useRouter();
   const [sales, setSales] = useState(initialSales);
   const [showModal, setShowModal] = useState(false);
@@ -64,10 +70,10 @@ export default function KasaClient({ initialSales, barbers, services, selectedDa
 
   // Ciro hesabi tek yerde: lib/revenue.ts (FAZ 2 · Sira 2).
   // Gun Sonu ve Dashboard ayni fonksiyonu kullanir; rakamlar birebir ayni.
-  const ozet = summarizeRevenue(filteredSales);
-  const totalSales = ozet.realizedRevenue;   // Gerceklesen Ciro
-  const totalPaid = ozet.collected;          // Tahsilat
+  const ozet = summarizeRevenue({ sales: filteredSales, payments: [] });
+  const totalSales = ozet.realizedRevenue;   // Gerceklesen Ciro (satis gunu)
   const totalCredit = ozet.credit;
+  const totalPaid = dayCollected;            // Tahsilat (odeme gunu)
 
   return (
     <>
@@ -75,7 +81,7 @@ export default function KasaClient({ initialSales, barbers, services, selectedDa
       <div className="grid grid-cols-3 gap-4 mb-6">
         {[
           { label: filterBarberId ? `Ciro (${barbers.find(b => b.id === filterBarberId)?.name})` : "Gerçekleşen Ciro", value: totalSales, color: "text-white" },
-          { label: "Tahsilat", value: totalPaid, color: "text-green-400" },
+          { label: filterBarberId ? "Tahsilat (gün geneli)" : "Tahsilat", value: totalPaid, color: "text-green-400" },
           { label: "Veresiye Kalan", value: totalCredit, color: "text-orange-400" },
         ].map((c) => (
           <div key={c.label} className="bg-[#0f0f0f] border border-[#1e1e1e] rounded-xl p-4">

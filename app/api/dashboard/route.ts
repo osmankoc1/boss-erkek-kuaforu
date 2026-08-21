@@ -99,10 +99,23 @@ export async function GET(req: NextRequest) {
     db.sale.findMany({ where: { saleDate: { gte: monthStart, lt: monthEnd } }, select: SALE_FIELDS }),
   ]);
 
-  const rangeSummary = summarizeRevenue(rangeSales);
-  const todaySummary = summarizeRevenue(todaySales);
-  const weekSummary = summarizeRevenue(weekSales);
-  const monthSummary = summarizeRevenue(monthSales);
+  const PAYMENT_WHERE = (gte: Date, lt: Date) => ({
+    paymentDate: { gte, lt },
+    OR: [{ saleId: null }, { sale: { saleStatus: { not: "VOIDED" } } }],
+  });
+  const PAYMENT_FIELDS = { amount: true, paymentMethod: true } as const;
+
+  const [rangePayments, todayPayments, weekPayments, monthPayments] = await Promise.all([
+    db.customerPayment.findMany({ where: PAYMENT_WHERE(rangeStart, rangeEnd), select: PAYMENT_FIELDS }),
+    db.customerPayment.findMany({ where: PAYMENT_WHERE(todayStart, todayEnd), select: PAYMENT_FIELDS }),
+    db.customerPayment.findMany({ where: PAYMENT_WHERE(weekStart, weekEnd), select: PAYMENT_FIELDS }),
+    db.customerPayment.findMany({ where: PAYMENT_WHERE(monthStart, monthEnd), select: PAYMENT_FIELDS }),
+  ]);
+
+  const rangeSummary = summarizeRevenue({ sales: rangeSales, payments: rangePayments });
+  const todaySummary = summarizeRevenue({ sales: todaySales, payments: todayPayments });
+  const weekSummary = summarizeRevenue({ sales: weekSales, payments: weekPayments });
+  const monthSummary = summarizeRevenue({ sales: monthSales, payments: monthPayments });
 
   const avgTicket = rangeSummary.count > 0 ? rangeSummary.realizedRevenue / rangeSummary.count : 0;
 

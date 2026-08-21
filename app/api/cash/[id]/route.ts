@@ -30,19 +30,38 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const saleStatus = calcStatus(paidAmount, saleAmount);
   const { barberShare, businessShare } = calcShares(saleAmount, existing.barberWorkerType, existing.barberCommissionRate);
 
-  const sale = await db.sale.update({
-    where: { id },
-    data: {
-      saleAmount,
-      paidAmount,
-      remainingAmount,
-      saleStatus,
-      barberShare,
-      businessShare,
-      paymentMethod: parsed.data.paymentMethod ?? existing.paymentMethod,
-      note: parsed.data.note !== undefined ? parsed.data.note : existing.note,
-    },
-  });
+  // Odenen tutar degistiyse odeme defterine duzeltme satiri yazilir; boylece
+  // Σ(odeme defteri) == sale.paidAmount degismezi korunur (FAZ 2 · Sira 3).
+  const fark = Math.round((paidAmount - existing.paidAmount) * 100) / 100;
+
+  const [sale] = await db.$transaction([
+    db.sale.update({
+      where: { id },
+      data: {
+        saleAmount,
+        paidAmount,
+        remainingAmount,
+        saleStatus,
+        barberShare,
+        businessShare,
+        paymentMethod: parsed.data.paymentMethod ?? existing.paymentMethod,
+        note: parsed.data.note !== undefined ? parsed.data.note : existing.note,
+      },
+    }),
+    ...(fark !== 0
+      ? [
+          db.customerPayment.create({
+            data: {
+              customerId: existing.customerId,
+              saleId: id,
+              amount: fark,
+              paymentMethod: parsed.data.paymentMethod ?? existing.paymentMethod,
+              note: "Satış düzenlemesi (tutar farkı)",
+            },
+          }),
+        ]
+      : []),
+  ]);
 
   return Response.json({ sale });
 }

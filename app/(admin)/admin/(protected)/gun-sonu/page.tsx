@@ -18,14 +18,21 @@ export default async function GunSonuPage({ searchParams }: { searchParams: Sear
   const selectedDate = params.date ?? today;
   const d = selectedDate;
 
-  const [sales, expenses] = await Promise.all([
+  const [sales, expenses, payments] = await Promise.all([
     db.sale.findMany({ where: { saleDate: { gte: startOfDay(d), lte: endOfDay(d) } } }),
     db.expense.findMany({ where: { expenseDate: { gte: startOfDay(d), lte: endOfDay(d) } }, orderBy: { expenseDate: "desc" } }),
+    db.customerPayment.findMany({
+      where: {
+        paymentDate: { gte: startOfDay(d), lte: endOfDay(d) },
+        OR: [{ saleId: null }, { sale: { saleStatus: { not: "VOIDED" } } }],
+      },
+      select: { amount: true, paymentMethod: true },
+    }),
   ]);
 
   // Ciro hesabi tek yerde: lib/revenue.ts (FAZ 2 · Sira 2).
   // Kasa, Gun Sonu ve Dashboard ayni fonksiyondan beslenir.
-  const ozet = summarizeRevenue(sales, expenses);
+  const ozet = summarizeRevenue({ sales, payments, expenses });
   const totalSales = ozet.realizedRevenue;   // Gerceklesen Ciro
   const totalPaid = ozet.collected;          // Tahsilat
   const totalCredit = ozet.credit;
@@ -45,7 +52,7 @@ export default async function GunSonuPage({ searchParams }: { searchParams: Sear
     totalSale: b.realizedRevenue,
     barberShare: b.barberShare,
     businessShare: b.businessShare,
-    totalPaid: b.collected,
+    totalPaid: b.paidOnSales,
     totalCredit: b.credit,
   }));
 

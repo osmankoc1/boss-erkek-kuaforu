@@ -184,6 +184,22 @@ export async function POST(req: NextRequest) {
         data: { completedCount: { increment: 1 }, lastVisitAt: saleDate },
       });
 
+      // Pesin tahsilat odeme defterine yazilir (FAZ 2 · Sira 3).
+      // Tahsilat raporlari bu defterden okunur; satis aninda alinan para da
+      // bir tahsilat olayidir ve satisin gunune yazilir.
+      if (data.paidAmount > 0) {
+        await tx.customerPayment.create({
+          data: {
+            customerId: appointment.customerId,
+            saleId: sale.id,
+            amount: data.paidAmount,
+            paymentMethod: data.paymentMethod,
+            paymentDate: saleDate,
+            note: "Satış anında tahsilat",
+          },
+        });
+      }
+
       return { kind: "created" as const, sale };
     }, { maxWait: 5_000, timeout: 15_000 });
 
@@ -205,6 +221,20 @@ export async function POST(req: NextRequest) {
   }
 
   const sale = await db.sale.create({ data: saleData, include: { items: true } });
+
+  // Pesin tahsilat odeme defterine yazilir (FAZ 2 · Sira 3).
+  if (data.paidAmount > 0) {
+    await db.customerPayment.create({
+      data: {
+        customerId: resolvedCustomerId,
+        saleId: sale.id,
+        amount: data.paidAmount,
+        paymentMethod: data.paymentMethod,
+        paymentDate: saleDate,
+        note: "Satış anında tahsilat",
+      },
+    });
+  }
 
   if (resolvedCustomerId) {
     await db.customer.update({

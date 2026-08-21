@@ -8,7 +8,7 @@
  *
  * KAVRAMLAR — birbirine karıştırılmamalı:
  *   Gerçekleşen Ciro (realizedRevenue) = Σ saleAmount   → yapılan işin tutarı
- *   Tahsilat        (collected)        = Σ paidAmount   → kasaya giren para
+ *   Tahsilat        (collected)        = Σ ödeme defteri → o gün alınan para
  *   Veresiye        (credit)           = Σ remainingAmount → henüz alınmayan
  *   Net Kasa        (netCash)          = collected − expenses
  *
@@ -18,10 +18,10 @@
  * Bu dosya bilinçli olarak saftır: veritabanı veya Next.js bağımlılığı yoktur.
  * Veriyi toplamak çağıranın işidir; kural burada tek yerde durur.
  *
- * NOT (Sıra 3'ün konusu): `collected` şu an satışın `paidAmount` alanından
- * gelir, yani tahsilat satışın gününe yazılır. Veresiye tahsilatının gerçek
- * tahsil gününe taşınması ayrı bir iştir; bu dosyanın imzası o değişikliği
- * kaldıracak şekilde tasarlandı.
+ * TAHSILAT EKSENI (FAZ 2 · Sıra 3): `collected` ödeme defterinden
+ * (`CustomerPayment.paymentDate`) gelir — satışın gününden DEĞİL. Böylece
+ * dünkü veresiye satışın bugünkü tahsilatı bugünün kasasına girer ve dünün
+ * raporu geriye dönük değişmez.
  */
 
 /** İptal edilmiş satış durumu. */
@@ -40,6 +40,15 @@ export type RevenueSale = {
 
 /** Ciro hesabı için gereken asgari gider alanları. */
 export type RevenueExpense = { amount: number };
+
+/**
+ * Tahsilat kaydı (ödeme defteri satırı).
+ *
+ * Tahsilat, paranın ALINDIĞI güne yazılır — satışın gününe değil. Dünkü
+ * veresiye satışın bugün yapılan ödemesi bugünün kasasına girer ve dünün
+ * raporu geriye dönük değişmez.
+ */
+export type RevenuePayment = { amount: number; paymentMethod: string };
 
 export type RevenueSummary = {
   /** Gerçekleşen Ciro — yapılan işin tutarı (VOID hariç). */
@@ -77,31 +86,45 @@ function round2(value: number): number {
 }
 
 /**
- * Bir tarih aralığındaki satış ve giderlerden ciro özetini üretir.
+ * Bir tarih aralığındaki ciro özetini üretir.
+ *
+ * İKİ AYRI ZAMAN EKSENİ (FAZ 2 · Sıra 3):
+ *   `sales`    → o aralıkta YAPILAN satışlar (saleDate). Ciro ve veresiye
+ *                buradan gelir.
+ *   `payments` → o aralıkta ALINAN paralar (paymentDate). Tahsilat ve ödeme
+ *                yöntemi kırılımı buradan gelir.
+ * İkisi aynı aralık için farklı kayıtları kapsayabilir; veresiye satışta
+ * zaten kapsar.
  *
  * Kasa, Gün Sonu ve Dashboard aynı aralık için bu fonksiyonu çağırdığında
  * birebir aynı rakamı görür.
  */
-export function summarizeRevenue(
-  sales: RevenueSale[],
-  expenses: RevenueExpense[] = []
-): RevenueSummary {
+export function summarizeRevenue(input: {
+  sales: RevenueSale[];
+  payments: RevenuePayment[];
+  expenses?: RevenueExpense[];
+}): RevenueSummary {
+  const { sales, payments, expenses = [] } = input;
   const active = activeSales(sales);
 
   let realizedRevenue = 0;
-  let collected = 0;
   let credit = 0;
   let barberShare = 0;
   let businessShare = 0;
-  const byMethod: Record<string, number> = {};
 
   for (const sale of active) {
     realizedRevenue += sale.saleAmount;
-    collected += sale.paidAmount;
     credit += sale.remainingAmount;
     barberShare += sale.barberShare;
     businessShare += sale.businessShare;
-    byMethod[sale.paymentMethod] = round2((byMethod[sale.paymentMethod] ?? 0) + sale.paidAmount);
+  }
+
+  // Tahsilat ödeme defterinden — tahsil edildiği güne yazılır.
+  let collected = 0;
+  const byMethod: Record<string, number> = {};
+  for (const payment of payments) {
+    collected += payment.amount;
+    byMethod[payment.paymentMethod] = round2((byMethod[payment.paymentMethod] ?? 0) + payment.amount);
   }
 
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
@@ -136,7 +159,8 @@ export type BarberRevenueRow = {
   count: number;
   /** Gerçekleşen Ciro (bu berber). */
   realizedRevenue: number;
-  collected: number;
+  /** Bu berberin satışlarının şu ana kadar ödenmiş kısmı (tarih ekseni YOK). */
+  paidOnSales: number;
   credit: number;
   barberShare: number;
   businessShare: number;
@@ -156,7 +180,7 @@ export function summarizeByBarber(sales: BarberRevenueSale[]): BarberRevenueRow[
         commissionRate: sale.barberCommissionRate,
         count: 0,
         realizedRevenue: 0,
-        collected: 0,
+        paidOnSales: 0,
         credit: 0,
         barberShare: 0,
         businessShare: 0,
@@ -165,7 +189,7 @@ export function summarizeByBarber(sales: BarberRevenueSale[]): BarberRevenueRow[
     }
     row.count += 1;
     row.realizedRevenue += sale.saleAmount;
-    row.collected += sale.paidAmount;
+    row.paidOnSales += sale.paidAmount;
     row.credit += sale.remainingAmount;
     row.barberShare += sale.barberShare;
     row.businessShare += sale.businessShare;
@@ -173,13 +197,24 @@ export function summarizeByBarber(sales: BarberRevenueSale[]): BarberRevenueRow[
 
   for (const row of map.values()) {
     row.realizedRevenue = round2(row.realizedRevenue);
-    row.collected = round2(row.collected);
+    row.paidOnSales = round2(row.paidOnSales);
     row.credit = round2(row.credit);
     row.barberShare = round2(row.barberShare);
     row.businessShare = round2(row.businessShare);
   }
 
   return Array.from(map.values());
+}
+
+/**
+ * Bir tahsilatın gerçekleşen tahsilata sayılıp sayılmayacağı.
+ *
+ * VOID edilmiş satışın ödemeleri sayılmaz — satış ciroya girmediği gibi
+ * tahsilatı da girmez. (VOID sonrası paranın iadesi/mahsubu ayrı bir iştir;
+ * bkz. FAZ 2 · Sıra 5.)
+ */
+export function isCollectablePayment(payment: { sale?: { saleStatus: string } | null }): boolean {
+  return !payment.sale || payment.sale.saleStatus !== VOIDED_STATUS;
 }
 
 /**

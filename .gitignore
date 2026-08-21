@@ -50,3 +50,6 @@ dev_server.log
 next-env.d.ts
 
 /app/generated/prisma
+
+# Gecici calisma dosyalari (dev log, tek seferlik scriptler)
+._*

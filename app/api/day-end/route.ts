@@ -12,13 +12,20 @@ export async function GET(req: NextRequest) {
   const date = req.nextUrl.searchParams.get("date") ?? istanbulDateString();
   const d = date;
 
-  const [sales, expenses] = await Promise.all([
+  const [sales, expenses, payments] = await Promise.all([
     db.sale.findMany({ where: { saleDate: { gte: startOfDay(d), lte: endOfDay(d) } } }),
     db.expense.findMany({ where: { expenseDate: { gte: startOfDay(d), lte: endOfDay(d) } } }),
+    db.customerPayment.findMany({
+      where: {
+        paymentDate: { gte: startOfDay(d), lte: endOfDay(d) },
+        OR: [{ saleId: null }, { sale: { saleStatus: { not: "VOIDED" } } }],
+      },
+      select: { amount: true, paymentMethod: true },
+    }),
   ]);
 
   // Ciro hesabi tek yerde: lib/revenue.ts (FAZ 2 · Sira 2).
-  const ozet = summarizeRevenue(sales, expenses);
+  const ozet = summarizeRevenue({ sales, payments, expenses });
   const byBarber = summarizeByBarber(sales);
 
   return Response.json({

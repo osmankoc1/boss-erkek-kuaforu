@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { startOfDay, endOfDay } from "@/lib/sale";
+import { summarizeRevenue } from "@/lib/revenue";
 import { istanbulDateString } from "@/lib/tz";
 import KasaClient from "./KasaClient";
 
@@ -13,7 +14,7 @@ export default async function KasaPage({ searchParams }: { searchParams: SearchP
   const selectedDate = params.date ?? today;
   const d = selectedDate;
 
-  const [sales, barbers, services] = await Promise.all([
+  const [sales, barbers, services, payments] = await Promise.all([
     db.sale.findMany({
       where: { saleDate: { gte: startOfDay(d), lte: endOfDay(d) } },
       include: { items: true },
@@ -21,6 +22,13 @@ export default async function KasaPage({ searchParams }: { searchParams: SearchP
     }),
     db.barber.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
     db.service.findMany({ where: { isActive: true }, orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }] }),
+    db.customerPayment.findMany({
+      where: {
+        paymentDate: { gte: startOfDay(d), lte: endOfDay(d) },
+        OR: [{ saleId: null }, { sale: { saleStatus: { not: "VOIDED" } } }],
+      },
+      select: { amount: true, paymentMethod: true },
+    }),
   ]);
 
   return (
@@ -47,6 +55,7 @@ export default async function KasaPage({ searchParams }: { searchParams: SearchP
         barbers={barbers.map((b) => ({ id: b.id, name: b.name, workerType: b.workerType, commissionRate: b.commissionRate }))}
         services={services.map((s) => ({ id: s.id, name: s.name, price: s.price, durationMinutes: s.durationMinutes, category: s.category, displayOrder: s.displayOrder }))}
         selectedDate={selectedDate}
+        dayCollected={summarizeRevenue({ sales: [], payments }).collected}
       />
     </div>
   );

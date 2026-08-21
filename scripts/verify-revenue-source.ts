@@ -69,6 +69,18 @@ const BEKLENEN_VERESIYE = VERESIYE.sale - VERESIYE.paid; // 250
 let cookie = "";
 const g = (u: string) => fetch(`${BASE}${u}`, { headers: { Cookie: cookie }, cache: "no-store" }).then((r) => r.json());
 
+/**
+ * Satış anında alınan para ödeme defterine de yazılır (FAZ 2 · Sıra 3).
+ * Ürün kodu (`POST /api/cash`) bunu yapıyor; test doğrudan DB'ye yazdığı için
+ * aynı kaydı burada da oluşturmak zorunda.
+ */
+async function defterYaz(saleId: string, customerId: string, amount: number, method: string, tarih: Date) {
+  if (amount <= 0) return;
+  await db.customerPayment.create({
+    data: { customerId, saleId, amount, paymentMethod: method, paymentDate: tarih, note: "Satış anında tahsilat" },
+  });
+}
+
 async function cleanup() {
   const custs = (await db.customer.findMany({ select: { id: true, fullName: true, phone: true } })).filter(
     (c) => c.fullName.startsWith(MARK) || PHONES.some((p) => c.phone === p || c.phone.endsWith(`_${p}`))
@@ -145,6 +157,8 @@ async function main() {
         barberShare: 0, businessShare: RANDEVULU.sale,
       },
     });
+    const s1 = await db.sale.findFirst({ where: { appointmentId: a1.id }, select: { id: true } });
+    await defterYaz(s1!.id, c1.id, RANDEVULU.paid, "CASH", saleDate);
     console.log(`   randevulu satis   : ${RANDEVULU.sale} TL (tahsil ${RANDEVULU.paid})`);
 
     // 2) Walk-in (randevusuz) satış
@@ -158,6 +172,8 @@ async function main() {
         barberShare: 0, businessShare: WALKIN.sale,
       },
     });
+    const s2 = await db.sale.findFirst({ where: { customerId: c2.id }, select: { id: true } });
+    await defterYaz(s2!.id, c2.id, WALKIN.paid, "CARD", saleDate);
     console.log(`   walk-in satis     : ${WALKIN.sale} TL (randevusuz)`);
 
     // 3) VOID satış — randevusu 'completed' KALIYOR (mevcut davranis)
@@ -178,7 +194,9 @@ async function main() {
         paymentMethod: "CASH", barberShare: 0, businessShare: VOID.sale,
       },
     });
-    console.log(`   VOID satis        : ${VOID.sale} TL (ciroya girmemeli)`);
+    const s3 = await db.sale.findFirst({ where: { appointmentId: a3.id }, select: { id: true } });
+    await defterYaz(s3!.id, c3.id, VOID.paid, "CASH", saleDate);
+    console.log(`   VOID satis        : ${VOID.sale} TL (ciroya ve tahsilata girmemeli)`);
 
     // 4) Kısmi / veresiye satış
     const c4 = await db.customer.create({ data: { fullName: `${MARK} Veresiye`, phone: PHONES[3] } });
@@ -191,6 +209,8 @@ async function main() {
         barberShare: 0, businessShare: VERESIYE.sale,
       },
     });
+    const s4 = await db.sale.findFirst({ where: { customerId: c4.id }, select: { id: true } });
+    await defterYaz(s4!.id, c4.id, VERESIYE.paid, "CASH", saleDate);
     console.log(`   veresiye satis    : ${VERESIYE.sale} TL (tahsil ${VERESIYE.paid}, kalan ${BEKLENEN_VERESIYE})`);
     console.log(`\n   BEKLENEN Gerceklesen Ciro : ${BEKLENEN_CIRO}`);
     console.log(`   BEKLENEN Tahsilat         : ${BEKLENEN_TAHSILAT}`);
