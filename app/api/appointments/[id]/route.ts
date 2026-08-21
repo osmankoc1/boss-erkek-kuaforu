@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { logMailFailure, sendConfirmationEmail, sendCancellationEmail } from "@/lib/mail";
 import { matchesAppointmentCode } from "@/lib/appointment-code";
+import { isRecordNotFound } from "@/lib/prisma-errors";
 
 /**
  * Randevu durum geçiş makinesi.
@@ -182,6 +183,15 @@ export async function DELETE(_req: NextRequest, ctx: RouteContext<"/api/appointm
   if (!session?.userId) return Response.json({ error: "Yetkisiz." }, { status: 401 });
 
   const { id } = await ctx.params;
-  await db.appointment.delete({ where: { id } });
+  try {
+    await db.appointment.delete({ where: { id } });
+  } catch (error) {
+    // Var olmayan randevu: Prisma P2025 firlatir. PATCH ile ayni sekilde
+    // 404 donulur; diger hatalar gercek sunucu hatasi olarak kalir.
+    if (isRecordNotFound(error)) {
+      return Response.json({ error: "Randevu bulunamadı." }, { status: 404 });
+    }
+    throw error;
+  }
   return Response.json({ ok: true });
 }
