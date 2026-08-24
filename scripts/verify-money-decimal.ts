@@ -396,10 +396,16 @@ async function main() {
     // ── TEST 9 — Sayfalar: Decimal sizintisi ve bos tutar yok ────────────
     console.log("\nTEST 9 — Sayfalarda Decimal sizintisi / bos tutar");
     {
+      // TUM sayfalar taranir. Once yalnizca "parasal" sandigim sayfalar
+      // listeleniyordu ve /admin/calisanlar listede yoktu -- oradaki
+      // commissionRate sizintisi bu yuzden testten kacmisti. Bir sayfanin
+      // para tasiyip tasimadigina karar vermek yerine hepsi kontrol edilir.
       const sayfalar = [
-        "/admin/kasa", "/admin/gun-sonu", "/admin/hakedisler", "/admin/veresiye",
-        "/admin/hizmetler", "/admin/dashboard", "/admin/randevular", "/admin/hizmet-analitik",
-        "/hizmetler", "/randevu",
+        "/admin/dashboard", "/admin/kasa", "/admin/gun-sonu", "/admin/hakedisler",
+        "/admin/veresiye", "/admin/hizmetler", "/admin/randevular", "/admin/hizmet-analitik",
+        "/admin/calisanlar", "/admin/musteriler", "/admin/kampanyalar", "/admin/saatler",
+        "/admin/ayarlar", "/admin/rehber",
+        "/", "/hizmetler", "/ekibimiz", "/iletisim", "/randevu", "/randevu-sorgula",
       ];
       for (const s of sayfalar) {
         const res = await fetch(`${BASE}${s}`, { headers: { Cookie: cookie }, cache: "no-store" });
@@ -409,6 +415,31 @@ async function main() {
         check(`${s} -> ${res.status}, render hatasi yok`, res.status === 200 && !hataliRender,
           `${res.status}${hataliRender ? " · render hatasi" : ""}`);
         check(`  ...NaN gosterilmiyor`, !/>\s*NaN\s*</.test(html) && !/NaN\s*₺/.test(html), "NaN var");
+      }
+    }
+
+    // ── TEST 9b — Sunucu logunda Decimal sizintisi uyarisi ───────────────
+    console.log("\nTEST 9b — Sunucu logunda Decimal sizintisi uyarisi");
+    {
+      // Sayfa 200 dondugu ve NaN gostermedigi hâlde deger SESSIZCE bosalmis
+      // olabilir; tek kesin belirti sunucu logundaki uyaridir. Dev sunucusu
+      // ._dev.log'a yaziyorsa dogrudan sinanir.
+      let log = "";
+      try {
+        log = readFileSync("._dev.log", "utf8");
+      } catch {
+        log = "";
+      }
+      if (log) {
+        const sizinti = log.split("\n").filter((l) => l.includes("Only plain objects"));
+        check("Sunucu logunda 'Only plain objects' uyarisi YOK", sizinti.length === 0,
+          sizinti.slice(0, 2).join(" | "));
+        check("Sunucu logunda 'toFixed is not a function' YOK",
+          !log.includes("toFixed is not a function"));
+        check("Sunucu logunda Prisma chunk hatasi YOK", !log.includes("chunking context"));
+      } else {
+        console.log("      (._dev.log bulunamadi; log kontrolu atlandi)");
+        check("Sunucu logu kontrolu", true, "log dosyasi yok");
       }
     }
 
