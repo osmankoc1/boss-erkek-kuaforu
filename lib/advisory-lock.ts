@@ -35,3 +35,12 @@ export const SALE_APPOINTMENT_LOCK = "boss:sale-appointment";
  * düşürüyor, satış tarafında ise tek artış oluyordu (FAZ 2 · Sıra 6).
  */
 export const SALE_PAYMENT_LOCK = "boss:sale-payment";
+
+/**
+ * Berber başına hakediş ödemesi yazmayı serileştiren kilit ad alanı.
+ *
+ * Kalan hakediş "oku → karşılaştır → yaz" adımlarıyla belirlenir. Kilitsiz
+ * hâlde iki eşzamanlı ödeme aynı kalanı okuyup ikisi birden geçerli sayılır
+ * ve berbere hak ettiğinden fazlası ödenir (FAZ 2 · Sıra 8).
+ */
+export const BARBER_PAYOUT_LOCK = "boss:barber-payout";

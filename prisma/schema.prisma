@@ -49,6 +49,7 @@ model Barber {
   exceptions     DateException[]
   appointments   Appointment[]
   sales          Sale[]
+  payouts        BarberPayout[]
   createdAt      DateTime        @default(now())
 }
 
@@ -226,6 +227,33 @@ model CustomerPayment {
   note          String?
   paymentDate   DateTime @default(now())
   createdAt     DateTime @default(now())
+}
+
+/// Berbere GERCEKTEN odenen hakedis defteri (FAZ 2 - Sira 8).
+///
+/// Tahakkuk (hakedisin dogmasi) bu tabloda TUTULMAZ; `Sale.barberShare`
+/// toplamindan turetilir. Burada yalnizca odenen para durur.
+///   Tahakkuk = VOID olmayan satislarin barberShare toplami
+///   Odenen   = bu tablonun amount toplami
+///   Kalan    = Tahakkuk - Odenen
+///
+/// `periodStart`/`periodEnd` odemenin hangi calisma donemine ait oldugunu
+/// KAYDEDER; tahakkuk bu alanlardan hesaplanmaz. `payoutDate` paranin fiilen
+/// verildigi andir ve daima sunucu tarafindan atanir.
+model BarberPayout {
+  id            String   @id @default(cuid())
+  barberId      String
+  barber        Barber   @relation(fields: [barberId], references: [id])
+  amount        Float
+  paymentMethod String   @default("CASH")
+  periodStart   DateTime
+  periodEnd     DateTime
+  note          String?
+  payoutDate    DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@index([barberId, payoutDate])
+  @@index([payoutDate])
 }
 
 model Expense {
