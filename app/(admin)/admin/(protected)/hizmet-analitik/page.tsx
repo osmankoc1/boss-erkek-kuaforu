@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { round2, sumBy, toNumber, ZERO, type Money } from "@/lib/money";
 import { startOfIstanbulDay, endOfIstanbulDay, startOfIstanbulMonth, addIstanbulDays, istanbulDateString } from "@/lib/tz";
 import HizmetAnalitikClient from "./HizmetAnalitikClient";
 
@@ -39,51 +40,62 @@ export default async function HizmetAnalitikPage({ searchParams }: { searchParam
   ]);
 
   // Category revenue
-  const catMap: Record<string, { category: string; count: number; revenue: number }> = {};
+  // Gelir birikimleri Decimal ile; ekrana number olarak verilir (Sira 9a).
+  const catMap: Record<string, { category: string; count: number; revenue: Money }> = {};
   for (const item of saleItems) {
     const cat = item.category || "Diğer";
-    if (!catMap[cat]) catMap[cat] = { category: cat, count: 0, revenue: 0 };
+    if (!catMap[cat]) catMap[cat] = { category: cat, count: 0, revenue: ZERO };
     catMap[cat].count++;
-    catMap[cat].revenue += item.price;
+    catMap[cat].revenue = catMap[cat].revenue.plus(item.price);
   }
-  const categoryRevenue = Object.values(catMap).sort((a, b) => b.revenue - a.revenue);
+  const categoryRevenue = Object.values(catMap)
+    .map((c) => ({ ...c, revenue: toNumber(round2(c.revenue)) }))
+    .sort((a, b) => b.revenue - a.revenue);
 
   // Top services
-  const svcMap: Record<string, { serviceId: string | null; serviceName: string; category: string; count: number; revenue: number; lastUsed: string }> = {};
+  const svcMap: Record<string, { serviceId: string | null; serviceName: string; category: string; count: number; revenue: Money; lastUsed: string }> = {};
   for (const item of saleItems) {
     const key = item.serviceId ?? item.serviceName;
-    if (!svcMap[key]) svcMap[key] = { serviceId: item.serviceId, serviceName: item.serviceName, category: item.category, count: 0, revenue: 0, lastUsed: "" };
+    if (!svcMap[key]) svcMap[key] = { serviceId: item.serviceId, serviceName: item.serviceName, category: item.category, count: 0, revenue: ZERO, lastUsed: "" };
     svcMap[key].count++;
-    svcMap[key].revenue += item.price;
+    svcMap[key].revenue = svcMap[key].revenue.plus(item.price);
     const d = item.sale.saleDate.toISOString();
     if (!svcMap[key].lastUsed || d > svcMap[key].lastUsed) svcMap[key].lastUsed = d;
   }
   const topServices = Object.values(svcMap)
-    .map((s) => ({ ...s, avgPrice: s.count > 0 ? s.revenue / s.count : 0 }))
+    .map((s) => ({
+      ...s,
+      revenue: toNumber(round2(s.revenue)),
+      avgPrice: s.count > 0 ? toNumber(round2(s.revenue.dividedBy(s.count))) : 0,
+    }))
     .sort((a, b) => b.count - a.count);
 
   // Daily series
-  const dailyMap: Record<string, { date: string; revenue: number; count: number }> = {};
+  const dailyMap: Record<string, { date: string; revenue: Money; count: number }> = {};
   for (const s of sales) {
     const d = istanbulDateString(s.saleDate);
-    if (!dailyMap[d]) dailyMap[d] = { date: d, revenue: 0, count: 0 };
-    dailyMap[d].revenue += s.saleAmount;
+    if (!dailyMap[d]) dailyMap[d] = { date: d, revenue: ZERO, count: 0 };
+    dailyMap[d].revenue = dailyMap[d].revenue.plus(s.saleAmount);
     dailyMap[d].count++;
   }
-  const dailySeries = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
+  const dailySeries = Object.values(dailyMap)
+    .map((d) => ({ ...d, revenue: toNumber(round2(d.revenue)) }))
+    .sort((a, b) => a.date.localeCompare(b.date));
 
   // Barber stats
-  const barberMap: Record<string, { barberName: string; count: number; revenue: number }> = {};
+  const barberMap: Record<string, { barberName: string; count: number; revenue: Money }> = {};
   for (const item of saleItems) {
     const bn = item.sale.barberName;
-    if (!barberMap[bn]) barberMap[bn] = { barberName: bn, count: 0, revenue: 0 };
+    if (!barberMap[bn]) barberMap[bn] = { barberName: bn, count: 0, revenue: ZERO };
     barberMap[bn].count++;
-    barberMap[bn].revenue += item.price;
+    barberMap[bn].revenue = barberMap[bn].revenue.plus(item.price);
   }
-  const barberStats = Object.values(barberMap).sort((a, b) => b.revenue - a.revenue);
+  const barberStats = Object.values(barberMap)
+    .map((b) => ({ ...b, revenue: toNumber(round2(b.revenue)) }))
+    .sort((a, b) => b.revenue - a.revenue);
 
   // Summary
-  const totalRevenue = saleItems.reduce((s, i) => s + i.price, 0);
+  const totalRevenue = toNumber(sumBy(saleItems, (i) => i.price));
   const totalCount = saleItems.length;
   const uniqueSales = new Set(saleItems.map((i) => i.saleId)).size;
 

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { serializeMoney, toNumber } from "@/lib/money";
 import ServiceManager from "./ServiceManager";
 
 export const metadata = { title: "Hizmetler — BOSS Admin" };
@@ -20,7 +21,7 @@ export default async function AdminHizmetlerPage() {
     if (s.serviceId) {
       statsMap[s.serviceId] = {
         count: s._count.id,
-        revenue: s._sum.price ?? 0,
+        revenue: toNumber(s._sum.price ?? 0),
         lastUsed: s._max.createdAt ? s._max.createdAt.toISOString() : null,
       };
     }
@@ -41,7 +42,8 @@ export default async function AdminHizmetlerPage() {
           Analitik
         </a>
       </div>
-      <ServiceManager services={services} statsMap={statsMap} />
+      {/* Decimal Client Component'e gecemez; sinirda number'a cevrilir. */}
+      <ServiceManager services={services.map((s) => serializeMoney(s, ["price"]))} statsMap={statsMap} />
     </div>
   );
 }

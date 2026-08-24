@@ -1,3 +1,5 @@
+import { money, round2, sum, ZERO, toNumber, type Money, type MoneyInput } from "./money";
+
 /**
  * Ciro hesaplamasının TEK doğruluk kaynağı (FAZ 2 · Sıra 2).
  *
@@ -15,13 +17,14 @@
  * Veresiye satışta ciro tam yazılır, tahsilat kısmi kalır; ikisi eşit olmak
  * zorunda değildir. VOID satışlar hiçbirine girmez.
  *
- * Bu dosya bilinçli olarak saftır: veritabanı veya Next.js bağımlılığı yoktur.
- * Veriyi toplamak çağıranın işidir; kural burada tek yerde durur.
- *
  * TAHSILAT EKSENI (FAZ 2 · Sıra 3): `collected` ödeme defterinden
  * (`CustomerPayment.paymentDate`) gelir — satışın gününden DEĞİL. Böylece
  * dünkü veresiye satışın bugünkü tahsilatı bugünün kasasına girer ve dünün
  * raporu geriye dönük değişmez.
+ *
+ * PARA TİPİ (FAZ 2 · Sıra 9a): Hesap Decimal ile yapılır, sonuç `number`
+ * olarak döner. Bu dosya veritabanına erişmez; girdi olarak Decimal de
+ * `number` de kabul eder, çıktısı daima sunuma hazır `number`'dır.
  */
 
 /** İptal edilmiş satış durumu. */
@@ -30,16 +33,16 @@ export const VOIDED_STATUS = "VOIDED";
 /** Ciro hesabı için gereken asgari satış alanları. */
 export type RevenueSale = {
   saleStatus: string;
-  saleAmount: number;
-  paidAmount: number;
-  remainingAmount: number;
-  barberShare: number;
-  businessShare: number;
+  saleAmount: MoneyInput;
+  paidAmount: MoneyInput;
+  remainingAmount: MoneyInput;
+  barberShare: MoneyInput;
+  businessShare: MoneyInput;
   paymentMethod: string;
 };
 
 /** Ciro hesabı için gereken asgari gider alanları. */
-export type RevenueExpense = { amount: number };
+export type RevenueExpense = { amount: MoneyInput };
 
 /**
  * Tahsilat kaydı (ödeme defteri satırı).
@@ -48,7 +51,7 @@ export type RevenueExpense = { amount: number };
  * veresiye satışın bugün yapılan ödemesi bugünün kasasına girer ve dünün
  * raporu geriye dönük değişmez.
  */
-export type RevenuePayment = { amount: number; paymentMethod: string };
+export type RevenuePayment = { amount: MoneyInput; paymentMethod: string };
 
 export type RevenueSummary = {
   /** Gerçekleşen Ciro — yapılan işin tutarı (VOID hariç). */
@@ -80,11 +83,6 @@ export function activeSales<T extends Pick<RevenueSale, "saleStatus">>(sales: T[
   return sales.filter(isActiveSale);
 }
 
-/** Kuruş hassasiyetinde toplama (Float birikimini sınırlar). */
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
 /**
  * Bir tarih aralığındaki ciro özetini üretir.
  *
@@ -107,36 +105,40 @@ export function summarizeRevenue(input: {
   const { sales, payments, expenses = [] } = input;
   const active = activeSales(sales);
 
-  let realizedRevenue = 0;
-  let credit = 0;
-  let barberShare = 0;
-  let businessShare = 0;
+  let realizedRevenue = ZERO;
+  let credit = ZERO;
+  let barberShare = ZERO;
+  let businessShare = ZERO;
 
   for (const sale of active) {
-    realizedRevenue += sale.saleAmount;
-    credit += sale.remainingAmount;
-    barberShare += sale.barberShare;
-    businessShare += sale.businessShare;
+    realizedRevenue = realizedRevenue.plus(money(sale.saleAmount));
+    credit = credit.plus(money(sale.remainingAmount));
+    barberShare = barberShare.plus(money(sale.barberShare));
+    businessShare = businessShare.plus(money(sale.businessShare));
   }
 
   // Tahsilat ödeme defterinden — tahsil edildiği güne yazılır.
-  let collected = 0;
-  const byMethod: Record<string, number> = {};
+  let collected = ZERO;
+  const byMethodDecimal: Record<string, Money> = {};
   for (const payment of payments) {
-    collected += payment.amount;
-    byMethod[payment.paymentMethod] = round2((byMethod[payment.paymentMethod] ?? 0) + payment.amount);
+    collected = collected.plus(money(payment.amount));
+    const onceki = byMethodDecimal[payment.paymentMethod] ?? ZERO;
+    byMethodDecimal[payment.paymentMethod] = round2(onceki.plus(money(payment.amount)));
   }
 
-  const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+  const byMethod: Record<string, number> = {};
+  for (const [k, v] of Object.entries(byMethodDecimal)) byMethod[k] = toNumber(v);
+
+  const totalExpenses = sum(expenses.map((e) => e.amount));
 
   return {
-    realizedRevenue: round2(realizedRevenue),
-    collected: round2(collected),
-    credit: round2(credit),
-    barberShare: round2(barberShare),
-    businessShare: round2(businessShare),
-    expenses: round2(totalExpenses),
-    netCash: round2(collected - totalExpenses),
+    realizedRevenue: toNumber(round2(realizedRevenue)),
+    collected: toNumber(round2(collected)),
+    credit: toNumber(round2(credit)),
+    barberShare: toNumber(round2(barberShare)),
+    businessShare: toNumber(round2(businessShare)),
+    expenses: toNumber(round2(totalExpenses)),
+    netCash: toNumber(round2(collected.minus(money(totalExpenses)))),
     byMethod,
     count: active.length,
     voidedCount: sales.length - active.length,
@@ -148,7 +150,7 @@ export type BarberRevenueSale = RevenueSale & {
   barberId: string;
   barberName: string;
   barberWorkerType: string;
-  barberCommissionRate: number;
+  barberCommissionRate: MoneyInput;
 };
 
 export type BarberRevenueRow = {
@@ -166,9 +168,22 @@ export type BarberRevenueRow = {
   businessShare: number;
 };
 
+type BarberAccumulator = {
+  barberId: string;
+  barberName: string;
+  workerType: string;
+  commissionRate: Money;
+  count: number;
+  realizedRevenue: Money;
+  paidOnSales: Money;
+  credit: Money;
+  barberShare: Money;
+  businessShare: Money;
+};
+
 /** Berber bazlı ciro kırılımı — Gün Sonu ve Hakedişler aynı sonucu görür. */
 export function summarizeByBarber(sales: BarberRevenueSale[]): BarberRevenueRow[] {
-  const map = new Map<string, BarberRevenueRow>();
+  const map = new Map<string, BarberAccumulator>();
 
   for (const sale of activeSales(sales)) {
     let row = map.get(sale.barberId);
@@ -177,33 +192,36 @@ export function summarizeByBarber(sales: BarberRevenueSale[]): BarberRevenueRow[
         barberId: sale.barberId,
         barberName: sale.barberName,
         workerType: sale.barberWorkerType,
-        commissionRate: sale.barberCommissionRate,
+        commissionRate: money(sale.barberCommissionRate),
         count: 0,
-        realizedRevenue: 0,
-        paidOnSales: 0,
-        credit: 0,
-        barberShare: 0,
-        businessShare: 0,
+        realizedRevenue: ZERO,
+        paidOnSales: ZERO,
+        credit: ZERO,
+        barberShare: ZERO,
+        businessShare: ZERO,
       };
       map.set(sale.barberId, row);
     }
     row.count += 1;
-    row.realizedRevenue += sale.saleAmount;
-    row.paidOnSales += sale.paidAmount;
-    row.credit += sale.remainingAmount;
-    row.barberShare += sale.barberShare;
-    row.businessShare += sale.businessShare;
+    row.realizedRevenue = row.realizedRevenue.plus(money(sale.saleAmount));
+    row.paidOnSales = row.paidOnSales.plus(money(sale.paidAmount));
+    row.credit = row.credit.plus(money(sale.remainingAmount));
+    row.barberShare = row.barberShare.plus(money(sale.barberShare));
+    row.businessShare = row.businessShare.plus(money(sale.businessShare));
   }
 
-  for (const row of map.values()) {
-    row.realizedRevenue = round2(row.realizedRevenue);
-    row.paidOnSales = round2(row.paidOnSales);
-    row.credit = round2(row.credit);
-    row.barberShare = round2(row.barberShare);
-    row.businessShare = round2(row.businessShare);
-  }
-
-  return Array.from(map.values());
+  return Array.from(map.values()).map((row) => ({
+    barberId: row.barberId,
+    barberName: row.barberName,
+    workerType: row.workerType,
+    commissionRate: toNumber(row.commissionRate),
+    count: row.count,
+    realizedRevenue: toNumber(round2(row.realizedRevenue)),
+    paidOnSales: toNumber(round2(row.paidOnSales)),
+    credit: toNumber(round2(row.credit)),
+    barberShare: toNumber(round2(row.barberShare)),
+    businessShare: toNumber(round2(row.businessShare)),
+  }));
 }
 
 /**
@@ -226,11 +244,9 @@ export function isCollectablePayment(payment: { sale?: { saleStatus: string } | 
  * ekranlarda bu adla gösterilmelidir.
  */
 export function expectedRevenue(
-  appointments: { status: string; appointmentPrice: number }[]
+  appointments: { status: string; appointmentPrice: MoneyInput }[]
 ): number {
-  return round2(
-    appointments
-      .filter((a) => a.status === "completed")
-      .reduce((sum, a) => sum + a.appointmentPrice, 0)
+  return toNumber(
+    round2(sum(appointments.filter((a) => a.status === "completed").map((a) => a.appointmentPrice)))
   );
 }

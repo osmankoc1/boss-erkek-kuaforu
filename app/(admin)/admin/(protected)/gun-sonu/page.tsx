@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { serializeMoney } from "@/lib/money";
 import { startOfDay, endOfDay } from "@/lib/sale";
 import { summarizeRevenue, summarizeByBarber, activeSales } from "@/lib/revenue";
 import { istanbulDateString } from "@/lib/tz";
@@ -123,7 +124,10 @@ export default async function GunSonuPage({ searchParams }: { searchParams: Sear
 
         {/* Gider section */}
         <ExpenseSection
-          initialExpenses={expenses.map((e) => ({ ...e, expenseDate: e.expenseDate.toISOString() }))}
+          initialExpenses={expenses.map((e) => ({
+            ...serializeMoney(e, ["amount"]),
+            expenseDate: e.expenseDate.toISOString(),
+          }))}
           selectedDate={selectedDate}
         />
       </div>

@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { serializeSales } from "@/lib/money";
+import { sumBy } from "@/lib/money";
 import { getSession } from "@/lib/session";
 import { logMailFailure, sendNewBookingNotification, sendVerificationEmail } from "@/lib/mail";
 import { validatePhone, PHONE_ERROR } from "@/lib/phone";
@@ -49,7 +51,7 @@ export async function GET(req: NextRequest) {
       return Response.json({ error: "Yetkisiz." }, { status: 401 });
     }
     const sales = await db.sale.findMany({ where: { appointmentId } });
-    return Response.json({ sales });
+    return Response.json({ sales: serializeSales(sales) });
   }
 
   // ── Public randevu sorgulama ─────────────────────────────────────────────
@@ -180,7 +182,7 @@ export async function POST(req: NextRequest) {
   if (svcs.length === 0) return Response.json({ error: "Hizmet bulunamadı." }, { status: 404 });
 
   const totalDuration = svcs.reduce((s, sv) => s + sv.durationMinutes, 0);
-  const totalPrice = svcs.reduce((s, sv) => s + sv.price, 0);
+  const totalPrice = sumBy(svcs, (sv) => sv.price);
   const endMinutes = timeToMinutes(startTime) + totalDuration;
   const endTime = `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
 

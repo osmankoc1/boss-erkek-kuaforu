@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { toNumber } from "@/lib/money";
 import { db } from "@/lib/db";
 import { formatPrice } from "@/lib/utils";
 import { getWorkingHoursText } from "@/lib/working-hours-text";
@@ -140,7 +141,7 @@ export default async function HomePage() {
                   <h3 className="font-bold text-white mb-1.5">{s.name}</h3>
                   {s.description && <p className="text-[#6b7280] text-xs mb-4 leading-relaxed">{s.description}</p>}
                   <div className="flex items-center justify-between pt-4 border-t border-[#2a2a2a]">
-                    <span className="text-[#c9762c] font-black text-lg">{formatPrice(s.price)}</span>
+                    <span className="text-[#c9762c] font-black text-lg">{formatPrice(toNumber(s.price))}</span>
                     <span className="text-[#6b7280] text-xs">{s.durationMinutes} dk</span>
                   </div>
                 </div>

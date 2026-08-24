@@ -23,6 +23,10 @@ import { assertWritableTestDatabase } from "../lib/db-guard";
 import { SignJWT } from "jose";
 import { istanbulDateString } from "../lib/tz";
 
+/** Prisma artik para alanlarini Decimal doner; testte sayiya cevrilir (Sira 9a). */
+const n = (v: unknown): number => (v === null || v === undefined ? 0 : Number(v));
+
+
 neonConfig.webSocketConstructor = ws;
 
 const BASE = process.env.TEST_BASE_URL ?? "http://localhost:3000";
@@ -110,7 +114,7 @@ async function durum(saleId: string) {
     select: { saleAmount: true, paidAmount: true, remainingAmount: true, saleStatus: true },
   });
   const odemeler = await db.customerPayment.findMany({ where: { saleId }, select: { amount: true } });
-  const defter = Math.round(odemeler.reduce((s, p) => s + p.amount, 0) * 100) / 100;
+  const defter = Math.round(odemeler.reduce((s, p) => s + n(p.amount), 0) * 100) / 100;
   return { sale, odemeler, defter };
 }
 
@@ -149,13 +153,13 @@ async function main() {
       check("  ...hata mesaji kalan tutari soyluyor",
         typeof r.body.error === "string" && /300/.test(r.body.error as string),
         `mesaj: ${String(r.body.error).slice(0, 90)}`);
-      check("  ...sale.paidAmount DEGISMEDI (100)", sonra.sale?.paidAmount === 100,
+      check("  ...sale.paidAmount DEGISMEDI (100)", n(sonra.sale?.paidAmount) === 100,
         `gelen ${sonra.sale?.paidAmount}`);
-      check("  ...sale.remainingAmount DEGISMEDI (300)", sonra.sale?.remainingAmount === 300,
+      check("  ...sale.remainingAmount DEGISMEDI (300)", n(sonra.sale?.remainingAmount) === 300,
         `gelen ${sonra.sale?.remainingAmount}`);
       check("  ...defter kaydi EKLENMEDI", sonra.odemeler.length === once.odemeler.length,
         `${once.odemeler.length} -> ${sonra.odemeler.length}`);
-      check("  ...defter == paidAmount", Math.abs(sonra.defter - (sonra.sale?.paidAmount ?? 0)) < 0.01,
+      check("  ...defter == paidAmount", Math.abs(sonra.defter - n(sonra.sale?.paidAmount)) < 0.01,
         `defter ${sonra.defter} != ${sonra.sale?.paidAmount}`);
     }
 
@@ -166,8 +170,8 @@ async function main() {
       const r = await post("/api/debts/payment", { saleId, customerId, amount: 300, paymentMethod: "CARD", note: MARK });
       const s = await durum(saleId);
       check("Tam kalan borc -> 201", r.status === 201, `gelen ${r.status}`);
-      check("  ...paidAmount = 400", s.sale?.paidAmount === 400, `gelen ${s.sale?.paidAmount}`);
-      check("  ...remainingAmount = 0", s.sale?.remainingAmount === 0, `gelen ${s.sale?.remainingAmount}`);
+      check("  ...paidAmount = 400", n(s.sale?.paidAmount) === 400, `gelen ${s.sale?.paidAmount}`);
+      check("  ...remainingAmount = 0", n(s.sale?.remainingAmount) === 0, `gelen ${s.sale?.remainingAmount}`);
       check("  ...saleStatus = PAID", s.sale?.saleStatus === "PAID", `gelen ${s.sale?.saleStatus}`);
       check("  ...defter == paidAmount", Math.abs(s.defter - 400) < 0.01, `defter ${s.defter}`);
     }
@@ -179,7 +183,7 @@ async function main() {
       const r1 = await post("/api/debts/payment", { saleId, customerId, amount: 200, paymentMethod: "CASH", note: MARK });
       const s1 = await durum(saleId);
       check("Ilk kismi odeme -> 201", r1.status === 201, `gelen ${r1.status}`);
-      check("  ...paidAmount = 200, kalan 300", s1.sale?.paidAmount === 200 && s1.sale?.remainingAmount === 300,
+      check("  ...paidAmount = 200, kalan 300", n(s1.sale?.paidAmount) === 200 && n(s1.sale?.remainingAmount) === 300,
         `paid ${s1.sale?.paidAmount} kalan ${s1.sale?.remainingAmount}`);
       check("  ...saleStatus = PARTIAL", s1.sale?.saleStatus === "PARTIAL", `gelen ${s1.sale?.saleStatus}`);
 
@@ -187,7 +191,7 @@ async function main() {
       const r2 = await post("/api/debts/payment", { saleId, customerId, amount: 150, paymentMethod: "CARD", note: MARK });
       const s2 = await durum(saleId);
       check("Farkli tutarda ikinci kismi odeme -> 201", r2.status === 201, `gelen ${r2.status}`);
-      check("  ...paidAmount = 350, kalan 150", s2.sale?.paidAmount === 350 && s2.sale?.remainingAmount === 150,
+      check("  ...paidAmount = 350, kalan 150", n(s2.sale?.paidAmount) === 350 && n(s2.sale?.remainingAmount) === 150,
         `paid ${s2.sale?.paidAmount} kalan ${s2.sale?.remainingAmount}`);
       check("  ...defter == paidAmount", Math.abs(s2.defter - 350) < 0.01, `defter ${s2.defter}`);
     }
@@ -202,7 +206,7 @@ async function main() {
       check("Kalan borcu 0 olan satisa odeme -> 400", r.status === 400, `gelen ${r.status}`);
       check("  ...defter kaydi eklenmedi", sonra.odemeler.length === once.odemeler.length,
         `${once.odemeler.length} -> ${sonra.odemeler.length}`);
-      check("  ...sifir tutarli cop kayit olusmadi", !sonra.odemeler.some((o) => o.amount === 0), "0 TL kayit var");
+      check("  ...sifir tutarli cop kayit olusmadi", !sonra.odemeler.some((o) => n(o.amount) === 0), "0 TL kayit var");
     }
 
     // ── TEST 5 — Çift tıklama (aynı istek arka arkaya) ────────────────────
@@ -215,9 +219,9 @@ async function main() {
       const s = await durum(saleId);
       check("Ilk istek -> 201", r1.status === 201, `gelen ${r1.status}`);
       check("Ikinci (mukerrer) istek reddedildi", r2.status >= 400, `gelen ${r2.status}`);
-      check("  ...paidAmount 400 (iki kez yazilmadi)", s.sale?.paidAmount === 400, `gelen ${s.sale?.paidAmount}`);
+      check("  ...paidAmount 400 (iki kez yazilmadi)", n(s.sale?.paidAmount) === 400, `gelen ${s.sale?.paidAmount}`);
       check("  ...defter == paidAmount", Math.abs(s.defter - 400) < 0.01, `defter ${s.defter}`);
-      const gercekOdemeler = s.odemeler.filter((o) => o.amount !== 0);
+      const gercekOdemeler = s.odemeler.filter((o) => n(o.amount) !== 0);
       check("  ...defterde tek tahsilat kaydi var", gercekOdemeler.length === 1,
         `${gercekOdemeler.length} kayit: ${s.odemeler.map((o) => o.amount).join(", ")}`);
     }
@@ -233,8 +237,8 @@ async function main() {
       console.log(`      sonuclar: ${sonuclar.map((r) => r.status).join(", ")}`);
       console.log(`      defter: ${s.odemeler.map((o) => o.amount).join(", ")} | paidAmount ${s.sale?.paidAmount}`);
       check("Yalnizca 1 istek basarili", basarili === 1, `${basarili} istek 201 dondu`);
-      check("  ...paidAmount = 600 (asilmadi)", s.sale?.paidAmount === 600, `gelen ${s.sale?.paidAmount}`);
-      check("  ...remainingAmount = 0", s.sale?.remainingAmount === 0, `gelen ${s.sale?.remainingAmount}`);
+      check("  ...paidAmount = 600 (asilmadi)", n(s.sale?.paidAmount) === 600, `gelen ${s.sale?.paidAmount}`);
+      check("  ...remainingAmount = 0", n(s.sale?.remainingAmount) === 0, `gelen ${s.sale?.remainingAmount}`);
       check("  ...DEFTER == paidAmount (yaris yok)", Math.abs(s.defter - 600) < 0.01,
         `defter ${s.defter} != 600 — eszamanli istekler cift yazmis`);
     }
@@ -251,8 +255,8 @@ async function main() {
       const sonuclar = await Promise.all(istekler);
       const s = await durum(saleId);
       console.log(`      sonuclar: ${sonuclar.map((r) => r.status).join(", ")} | paidAmount ${s.sale?.paidAmount}`);
-      check("paidAmount satis tutarini asmadi", (s.sale?.paidAmount ?? 0) <= 300, `gelen ${s.sale?.paidAmount}`);
-      check("  ...defter == paidAmount", Math.abs(s.defter - (s.sale?.paidAmount ?? 0)) < 0.01,
+      check("paidAmount satis tutarini asmadi", n(s.sale?.paidAmount) <= 300, `gelen ${s.sale?.paidAmount}`);
+      check("  ...defter == paidAmount", Math.abs(s.defter - n(s.sale?.paidAmount)) < 0.01,
         `defter ${s.defter} != ${s.sale?.paidAmount}`);
       check("  ...en az bir istek reddedildi", sonuclar.some((r) => r.status >= 400),
         `sonuclar ${sonuclar.map((r) => r.status).join(", ")}`);
@@ -264,12 +268,12 @@ async function main() {
       const { saleId, customerId } = await veresiyeSatis(500, 200, barber.id, service.name);
       await post("/api/debts/payment", { saleId, customerId, amount: 300, paymentMethod: "CARD", note: MARK });
       const oncesi = await durum(saleId);
-      check("Odeme sonrasi paidAmount = 500", oncesi.sale?.paidAmount === 500, `gelen ${oncesi.sale?.paidAmount}`);
+      check("Odeme sonrasi paidAmount = 500", n(oncesi.sale?.paidAmount) === 500, `gelen ${oncesi.sale?.paidAmount}`);
 
       const v = await post(`/api/cash/${saleId}/void`, { voidReason: MARK });
       const sonrasi = await durum(saleId);
       check("Void -> 200", v.status === 200, `gelen ${v.status}`);
-      check("  ...ters kayit yazildi (negatif)", sonrasi.odemeler.some((o) => o.amount < 0), "ters kayit yok");
+      check("  ...ters kayit yazildi (negatif)", sonrasi.odemeler.some((o) => n(o.amount) < 0), "ters kayit yok");
       check("  ...defter neti 0", Math.abs(sonrasi.defter) < 0.01, `net ${sonrasi.defter}`);
       const vr = await post("/api/debts/payment", { saleId, customerId, amount: 100, paymentMethod: "CASH", note: MARK });
       check("  ...VOID satisa odeme -> 400", vr.status === 400, `gelen ${vr.status}`);
@@ -300,7 +304,7 @@ async function main() {
       const yok = await post("/api/debts/payment", { saleId: "yok-boyle-satis", amount: 50, note: MARK });
       check("Var olmayan satis -> 404", yok.status === 404, `gelen ${yok.status}`);
       const s = await durum(saleId);
-      check("  ...gecersiz istekler defteri bozmadi", Math.abs(s.defter - (s.sale?.paidAmount ?? 0)) < 0.01,
+      check("  ...gecersiz istekler defteri bozmadi", Math.abs(s.defter - n(s.sale?.paidAmount)) < 0.01,
         `defter ${s.defter} != ${s.sale?.paidAmount}`);
     }
 

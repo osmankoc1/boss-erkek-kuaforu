@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
+import { sumBy, toNumber } from "@/lib/money";
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const unauthorized = await requireAdmin();
@@ -19,9 +20,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   const combined = [...primarySales, ...secondarySales];
   const preview = {
     visits: combined.length,
-    totalSale: combined.reduce((s, r) => s + r.saleAmount, 0),
-    totalPaid: combined.reduce((s, r) => s + r.paidAmount, 0),
-    totalDebt: combined.reduce((s, r) => s + r.remainingAmount, 0),
+    totalSale: toNumber(sumBy(combined, (r) => r.saleAmount)),
+    totalPaid: toNumber(sumBy(combined, (r) => r.paidAmount)),
+    totalDebt: toNumber(sumBy(combined, (r) => r.remainingAmount)),
   };
 
   return Response.json({ preview });

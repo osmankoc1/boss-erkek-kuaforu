@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
+import { serializeMoney } from "@/lib/money";
 import { getSession } from "@/lib/session";
 import { PUBLIC_BARBER_SELECT } from "@/lib/public-fields";
 import { barberCreateSchema, firstIssueMessage } from "@/lib/admin-schemas";
@@ -31,5 +32,5 @@ export async function POST(req: NextRequest) {
   // Yalnızca doğrulanmış alanlar yazılır — `id`, `createdAt` gibi sistem
   // alanları veya şemada olmayan alanlar buraya asla ulaşamaz.
   const barber = await db.barber.create({ data: parsed.data });
-  return Response.json({ barber }, { status: 201 });
+  return Response.json({ barber: serializeMoney(barber, ["commissionRate"]) }, { status: 201 });
 }

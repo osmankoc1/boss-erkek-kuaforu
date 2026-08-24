@@ -4,11 +4,13 @@ import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
 import { calcStatus } from "@/lib/sale";
 import { acquireAdvisoryLock, SALE_PAYMENT_LOCK } from "@/lib/advisory-lock";
+import { money, round2, toNumber, serializeMoney, serializeSale } from "@/lib/money";
+import { moneyAmount } from "@/lib/money-schema";
 
 const schema = z.object({
   saleId: z.string().min(1),
   customerId: z.string().optional().nullable(),
-  amount: z.number().positive(),
+  amount: moneyAmount.positive(),
   paymentMethod: z.enum(["CASH", "CARD", "TRANSFER", "OTHER"]).default("CASH"),
   note: z.string().optional().nullable(),
 });
@@ -24,9 +26,6 @@ const schema = z.object({
  * kesin olarak engeller.
  */
 const MUKERRER_PENCERE_MS = 10_000;
-
-/** Kuruş hassasiyeti. */
-const r2 = (n: number) => Math.round(n * 100) / 100;
 
 export async function POST(req: NextRequest) {
   const unauthorized = await requireAdmin();
@@ -51,16 +50,16 @@ export async function POST(req: NextRequest) {
       if (!sale) return { kind: "not_found" as const };
       if (sale.saleStatus === "VOIDED") return { kind: "voided" as const };
 
-      const kalan = r2(sale.saleAmount - sale.paidAmount);
+      const kalan = round2(money(sale.saleAmount).minus(sale.paidAmount));
 
-      if (kalan <= 0) {
+      if (kalan.lessThanOrEqualTo(0)) {
         return { kind: "no_debt" as const };
       }
 
       // Kalan borçtan fazlası SESSİZCE KIRPILMAZ; istek reddedilir ve
       // hiçbir veri değişmez.
-      if (r2(amount) > kalan) {
-        return { kind: "too_much" as const, kalan };
+      if (round2(amount).greaterThan(kalan)) {
+        return { kind: "too_much" as const, kalan: toNumber(kalan) };
       }
 
       // Mükerrer istek koruması — kilit altında okunur, yarışa açık değildir.
@@ -68,7 +67,7 @@ export async function POST(req: NextRequest) {
       const ayni = await tx.customerPayment.findFirst({
         where: {
           saleId,
-          amount: r2(amount),
+          amount: round2(amount),
           paymentMethod,
           createdAt: { gte: pencereBasi },
         },
@@ -78,11 +77,11 @@ export async function POST(req: NextRequest) {
         return { kind: "duplicate" as const, paymentId: ayni.id };
       }
 
-      const yeniOdenen = r2(sale.paidAmount + amount);
-      const yeniKalan = r2(sale.saleAmount - yeniOdenen);
+      const yeniOdenen = round2(money(sale.paidAmount).plus(amount));
+      const yeniKalan = round2(money(sale.saleAmount).minus(yeniOdenen));
 
       const payment = await tx.customerPayment.create({
-        data: { customerId, saleId, amount: r2(amount), paymentMethod, note: note ?? null },
+        data: { customerId, saleId, amount: round2(amount), paymentMethod, note: note ?? null },
       });
       const updatedSale = await tx.sale.update({
         where: { id: saleId },
@@ -129,6 +128,9 @@ export async function POST(req: NextRequest) {
         { status: 409 }
       );
     default:
-      return Response.json({ payment: outcome.payment, sale: outcome.sale }, { status: 201 });
+      return Response.json(
+        { payment: serializeMoney(outcome.payment, ["amount"]), sale: serializeSale(outcome.sale) },
+        { status: 201 }
+      );
   }
 }

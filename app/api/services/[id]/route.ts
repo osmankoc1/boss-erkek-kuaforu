@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { hasValidMoneyScale, MONEY_SCALE_ERROR, serializeMoney } from "@/lib/money";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
 
@@ -25,7 +26,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.name !== undefined)            data.name            = String(body.name);
   if (body.description !== undefined)     data.description     = body.description ? String(body.description) : null;
   if (body.durationMinutes !== undefined) data.durationMinutes = Number(body.durationMinutes) || 30;
-  if (body.price !== undefined)           data.price           = Number(body.price) || 0;
+  if (body.price !== undefined) {
+    const price = Number(body.price) || 0;
+    // Sessiz yuvarlama yerine acik red (FAZ 2 · Sira 9a).
+    if (!hasValidMoneyScale(price)) return Response.json({ error: MONEY_SCALE_ERROR }, { status: 400 });
+    data.price = price;
+  }
   if (body.category !== undefined)        data.category        = String(body.category);
   if (body.displayOrder !== undefined)    data.displayOrder    = Number(body.displayOrder);
   if (body.isActive !== undefined)        data.isActive        = Boolean(body.isActive);
@@ -36,7 +42,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   try {
     const service = await db.service.update({ where: { id }, data });
-    return Response.json({ service });
+    return Response.json({ service: serializeMoney(service, ["price"]) });
   } catch (err) {
     console.error("Service PATCH error:", err);
     return Response.json({ error: "Güncelleme başarısız." }, { status: 500 });

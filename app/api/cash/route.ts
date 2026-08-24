@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
+import { moneyAmount } from "@/lib/money-schema";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { serializeSale, serializeSales } from "@/lib/money";
 import { requireAdmin } from "@/lib/dal";
 import { calcShares, calcStatus, startOfDay, endOfDay } from "@/lib/sale";
 import { validatePhone, PHONE_ERROR } from "@/lib/phone";
@@ -13,7 +15,7 @@ const saleItemSchema = z.object({
   serviceId: z.string().optional().nullable(),
   serviceName: z.string().min(1),
   category: z.string().default("Diğer"),
-  price: z.number().min(0),
+  price: moneyAmount.min(0),
   durationMinutes: z.number().min(0).default(0),
 });
 
@@ -25,14 +27,14 @@ const saleSchema = z.object({
   // Legacy single-service (backward compat)
   serviceId: z.string().optional().nullable(),
   serviceName: z.string().optional(),
-  listedPrice: z.number().min(0).optional(),
+  listedPrice: moneyAmount.min(0).optional(),
   // New multi-service
   items: z.array(saleItemSchema).optional(),
   // Totals
   customerName: z.string().min(1),
   customerPhone: z.string().default(""),
-  saleAmount: z.number().min(0),
-  paidAmount: z.number().min(0),
+  saleAmount: moneyAmount.min(0),
+  paidAmount: moneyAmount.min(0),
   paymentMethod: z.enum(["CASH", "CARD", "TRANSFER", "OTHER"]).default("CASH"),
   note: z.string().optional().nullable(),
   saleDate: z.string().optional(),
@@ -65,7 +67,7 @@ export async function GET(req: NextRequest) {
     orderBy: { saleDate: "desc" },
   });
 
-  return Response.json({ sales });
+  return Response.json({ sales: serializeSales(sales) });
 }
 
 export async function POST(req: NextRequest) {
@@ -238,7 +240,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return Response.json({ sale: outcome.sale }, { status: 201 });
+    return Response.json({ sale: serializeSale(outcome.sale) }, { status: 201 });
   }
 
   const sale = await db.sale.create({ data: saleData, include: { items: true } });
@@ -261,5 +263,5 @@ export async function POST(req: NextRequest) {
     await recalculateCustomerCounters(db, resolvedCustomerId);
   }
 
-  return Response.json({ sale }, { status: 201 });
+  return Response.json({ sale: serializeSale(sale) }, { status: 201 });
 }

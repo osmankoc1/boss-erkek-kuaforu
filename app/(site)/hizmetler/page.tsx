@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { toNumber } from "@/lib/money";
 import { db } from "@/lib/db";
 import { formatPrice } from "@/lib/utils";
 import { FadeIn } from "@/components/site/Animate";
@@ -47,7 +48,7 @@ export default async function HizmetlerPage() {
                     </div>
                   </div>
                   <div className="text-right shrink-0 ml-6">
-                    <div className="text-[#c9762c] font-black text-lg">{formatPrice(s.price)}</div>
+                    <div className="text-[#c9762c] font-black text-lg">{formatPrice(toNumber(s.price))}</div>
                     <div className="text-[#6b7280] text-xs mt-0.5">{s.durationMinutes} dk</div>
                   </div>
                 </div>

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { toNumber, sumBy } from "@/lib/money";
 import VeresiyeClient from "./VeresiyeClient";
 
 export const metadata = { title: "Veresiye Defteri — BOSS Admin" };
@@ -16,16 +17,16 @@ export default async function VeresiyePage() {
     customerPhone: s.customerPhone,
     serviceName: s.serviceName,
     barberName: s.barberName,
-    saleAmount: s.saleAmount,
-    paidAmount: s.paidAmount,
-    remainingAmount: s.remainingAmount,
+    saleAmount: toNumber(s.saleAmount),
+    paidAmount: toNumber(s.paidAmount),
+    remainingAmount: toNumber(s.remainingAmount),
     saleStatus: s.saleStatus,
     saleDate: s.saleDate.toISOString(),
     daysAgo: Math.floor((now.getTime() - s.saleDate.getTime()) / 86400000),
     customerId: s.customerId,
   }));
 
-  const totalDebt = debts.reduce((s, d) => s + d.remainingAmount, 0);
+  const totalDebt = toNumber(sumBy(debts, (d) => d.remainingAmount));
 
   return (
     <div className="p-8">

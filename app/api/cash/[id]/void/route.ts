@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
 import { recalculateCustomerCounters } from "@/lib/customer-counters";
+import { round2, sum, serializeSale } from "@/lib/money";
 
 const schema = z.object({
   voidReason: z.string().optional().nullable(),
@@ -72,8 +73,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       where: { saleId: id },
       select: { amount: true },
     });
-    const netTahsilat = Math.round(odemeler.reduce((s, p) => s + p.amount, 0) * 100) / 100;
-    if (netTahsilat !== 0) {
+    const netTahsilat = round2(sum(odemeler.map((p) => p.amount)));
+    if (!netTahsilat.isZero()) {
       await tx.customerPayment.create({
         data: {
           customerId: existing.customerId,
@@ -89,5 +90,5 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return updated;
   });
 
-  return Response.json({ sale });
+  return Response.json({ sale: serializeSale(sale) });
 }

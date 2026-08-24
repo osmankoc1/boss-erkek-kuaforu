@@ -22,6 +22,10 @@ import { assertWritableTestDatabase } from "../lib/db-guard";
 import { SignJWT } from "jose";
 import { istanbulDateString, addIstanbulDays } from "../lib/tz";
 
+/** Prisma artik para alanlarini Decimal doner; testte sayiya cevrilir (Sira 9a). */
+const n = (v: unknown): number => (v === null || v === undefined ? 0 : Number(v));
+
+
 neonConfig.webSocketConstructor = ws;
 
 const BASE = process.env.TEST_BASE_URL ?? "http://localhost:3000";
@@ -189,12 +193,12 @@ async function main() {
 
     // ── TEST 5 — Ödeme kayıtları ─────────────────────────────────────────
     console.log("\nTEST 5 — Odeme kayitlari (tahsil edilmis para)");
-    const netOdeme = odemeler.reduce((s, p) => s + p.amount, 0);
+    const netOdeme = odemeler.reduce((s, p) => s + n(p.amount), 0);
     console.log(`      defterde ${odemeler.length} kayit, net ${netOdeme} TL`);
     for (const o of odemeler) console.log(`        ${o.amount} TL — ${o.note ?? "-"}`);
     check("Orijinal tahsilat kaydi denetim icin duruyor", odemeler.length >= 2,
       `defterde ${odemeler.length} kayit (orijinal + ters kayit beklenir)`);
-    check("Ters kayit yazildi (negatif tutar)", odemeler.some((o) => o.amount < 0), "ters kayit yok");
+    check("Ters kayit yazildi (negatif tutar)", odemeler.some((o) => n(o.amount) < 0), "ters kayit yok");
     check("Defter neti 0 (para iade edildi)", Math.abs(netOdeme) < 0.01,
       `net ${netOdeme} — iptal edilen satisin parasi defterde duruyor`);
     const tersKayit = await db.customerPayment.findFirst({

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { money, round2, sumBy, toNumber, ZERO, type Money } from "@/lib/money";
 import { startOfDay, endOfDay } from "@/lib/sale";
 import { addIstanbulDays, startOfIstanbulMonth } from "@/lib/tz";
 import { notFound } from "next/navigation";
@@ -85,33 +86,41 @@ export default async function BarberDetailPage({
 
   // ── Performans metrikleri ──
   const count = periodSales.length;
-  const totalSale = periodSales.reduce((s, r) => s + r.saleAmount, 0);
-  const totalPaid = periodSales.reduce((s, r) => s + r.paidAmount, 0);
-  const totalCredit = periodSales.reduce((s, r) => s + r.remainingAmount, 0);
-  const totalBarberShare = periodSales.reduce((s, r) => s + r.barberShare, 0);
-  const totalBusinessShare = periodSales.reduce((s, r) => s + r.businessShare, 0);
-  const avgTicket = count > 0 ? totalSale / count : 0;
+  // Toplamlar Decimal ile; ekrana number olarak verilir (FAZ 2 · Sira 9a).
+  const totalSale = toNumber(sumBy(periodSales, (r) => r.saleAmount));
+  const totalPaid = toNumber(sumBy(periodSales, (r) => r.paidAmount));
+  const totalCredit = toNumber(sumBy(periodSales, (r) => r.remainingAmount));
+  const totalBarberShare = toNumber(sumBy(periodSales, (r) => r.barberShare));
+  const totalBusinessShare = toNumber(sumBy(periodSales, (r) => r.businessShare));
+  const avgTicket = count > 0 ? toNumber(round2(money(totalSale).dividedBy(count))) : 0;
 
   // ── Hizmet performansı ──
-  const serviceMap = new Map<string, { count: number; totalSale: number; barberShare: number; businessShare: number }>();
+  const serviceMap = new Map<string, { count: number; totalSale: Money; barberShare: Money; businessShare: Money }>();
   for (const s of periodSales) {
     if (!serviceMap.has(s.serviceName)) {
-      serviceMap.set(s.serviceName, { count: 0, totalSale: 0, barberShare: 0, businessShare: 0 });
+      serviceMap.set(s.serviceName, { count: 0, totalSale: ZERO, barberShare: ZERO, businessShare: ZERO });
     }
     const e = serviceMap.get(s.serviceName)!;
     e.count++;
-    e.totalSale += s.saleAmount;
-    e.barberShare += s.barberShare;
-    e.businessShare += s.businessShare;
+    e.totalSale = e.totalSale.plus(s.saleAmount);
+    e.barberShare = e.barberShare.plus(s.barberShare);
+    e.businessShare = e.businessShare.plus(s.businessShare);
   }
   const servicePerf = Array.from(serviceMap.entries())
-    .map(([name, d]) => ({ name, ...d, avgPrice: d.count > 0 ? d.totalSale / d.count : 0 }))
+    .map(([name, d]) => ({
+      name,
+      count: d.count,
+      totalSale: toNumber(round2(d.totalSale)),
+      barberShare: toNumber(round2(d.barberShare)),
+      businessShare: toNumber(round2(d.businessShare)),
+      avgPrice: d.count > 0 ? toNumber(round2(d.totalSale.dividedBy(d.count))) : 0,
+    }))
     .sort((a, b) => b.count - a.count);
 
   // ── Müşteri performansı (tüm zaman) ──
   type CustomerEntry = {
     customerName: string; customerPhone: string;
-    visitCount: number; totalSpend: number; lastVisit: Date; hasDebt: boolean;
+    visitCount: number; totalSpend: Money; lastVisit: Date; hasDebt: boolean;
   };
   const customerMap = new Map<string, CustomerEntry>();
   for (const s of allTimeSales) {
@@ -119,26 +128,27 @@ export default async function BarberDetailPage({
     if (!customerMap.has(key)) {
       customerMap.set(key, {
         customerName: s.customerName, customerPhone: s.customerPhone,
-        visitCount: 0, totalSpend: 0, lastVisit: s.saleDate, hasDebt: false,
+        visitCount: 0, totalSpend: ZERO, lastVisit: s.saleDate, hasDebt: false,
       });
     }
     const e = customerMap.get(key)!;
     e.visitCount++;
-    e.totalSpend += s.saleAmount;
+    e.totalSpend = e.totalSpend.plus(s.saleAmount);
     if (s.saleDate > e.lastVisit) e.lastVisit = s.saleDate;
-    if (s.remainingAmount > 0) e.hasDebt = true;
+    if (money(s.remainingAmount).greaterThan(0)) e.hasDebt = true;
   }
   const customerPerf = Array.from(customerMap.values())
     .sort((a, b) => b.visitCount - a.visitCount)
-    .slice(0, 30);
+    .slice(0, 30)
+    .map((c) => ({ ...c, totalSpend: toNumber(round2(c.totalSpend)) }));
 
   // ── Hakediş breakdown ──
-  const paidShare = periodSales
-    .filter((s) => s.saleStatus === "PAID")
-    .reduce((s, r) => s + r.barberShare, 0);
-  const creditShare = periodSales
-    .filter((s) => s.saleStatus !== "PAID")
-    .reduce((s, r) => s + r.barberShare, 0);
+  const paidShare = toNumber(
+    sumBy(periodSales.filter((s) => s.saleStatus === "PAID"), (r) => r.barberShare)
+  );
+  const creditShare = toNumber(
+    sumBy(periodSales.filter((s) => s.saleStatus !== "PAID"), (r) => r.barberShare)
+  );
 
   const fmt = (d: Date) => new Date(d).toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric" });
   const fmtTime = (d: Date) => new Date(d).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });

@@ -15,6 +15,10 @@ import ws from "ws";
 import { assertWritableTestDatabase } from "../lib/db-guard";
 import { SignJWT } from "jose";
 
+/** Prisma artik para alanlarini Decimal doner; testte sayiya cevrilir (Sira 9a). */
+const n = (v: unknown): number => (v === null || v === undefined ? 0 : Number(v));
+
+
 neonConfig.webSocketConstructor = ws;
 
 const BASE_URL = process.env.TEST_BASE_URL ?? "http://localhost:3000";
@@ -76,7 +80,7 @@ async function main() {
       const saved = await db.barber.findUnique({ where: { id: barberId } });
       check("Izin verilen alanlar kaydedildi", saved?.name === validBarber.name && saved?.experienceYrs === 5, `name=${saved?.name}`);
       check("workerType yetkili admin akisinda yazilabildi", saved?.workerType === "COMMISSION", `gelen ${saved?.workerType}`);
-      check("commissionRate yetkili admin akisinda yazilabildi", saved?.commissionRate === 40, `gelen ${saved?.commissionRate}`);
+      check("commissionRate yetkili admin akisinda yazilabildi", n(saved?.commissionRate) === 40, `gelen ${saved?.commissionRate}`);
     }
 
     // ── TEST 2 — Sistem alani enjeksiyonu (id) ────────────────────────────

@@ -20,10 +20,14 @@
  * Bu, FAZ 2 · Sıra 7'deki "sayaç değil, gerçek kayıttan hesapla" ilkesinin
  * aynısıdır.
  *
- * Bu dosya bilinçli olarak saftır: veritabanı veya Next.js bağımlılığı yoktur.
+ * Bu dosya veritabanına ERİŞMEZ ve Next.js'e bağımlı değildir; yalnızca
+ * `lib/money.ts` üzerinden Decimal sınıfını kullanır. Girdi olarak Decimal de
+ * `number` de kabul eder, çıktısı daima sunuma hazır `number`'dır
+ * (FAZ 2 · Sıra 9a).
  */
 import { startOfIstanbulDay, endOfIstanbulDay } from "./tz";
 import { VOIDED_STATUS, isActiveSale } from "./revenue";
+import { money, round2, sum, ZERO, toNumber, type MoneyInput } from "./money";
 
 /**
  * Hakediş ödeme defterini kullanabilen çalışan tipleri.
@@ -56,29 +60,27 @@ export function payoutRejectionMessage(workerType: string): string {
   return "Bu çalışan tipi için hakediş ödemesi kaydedilemez; yalnızca yüzdeli (COMMISSION) çalışanlar hakediş alır.";
 }
 
-/** Kuruş hassasiyeti — Float birikimini sınırlar. */
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
 /** Tahakkuk hesabı için gereken asgari satış alanları. */
-export type PayoutAccrualSale = { saleStatus: string; barberShare: number };
+export type PayoutAccrualSale = { saleStatus: string; barberShare: MoneyInput };
 
 /** Ödeme defteri satırının hesap için gereken asgari alanı. */
-export type PayoutRecord = { amount: number };
+export type PayoutRecord = { amount: MoneyInput };
 
-/** Tahakkuk eden hakediş — VOID satışlar sayılmaz. */
+/**
+ * Tahakkuk eden hakediş — VOID satışlar sayılmaz.
+ *
+ * Hesap Decimal ile yapılır, sonuç sunuma hazır `number` döner
+ * (FAZ 2 · Sıra 9a).
+ */
 export function accruedShare(sales: PayoutAccrualSale[]): number {
-  let toplam = 0;
-  for (const s of sales) if (isActiveSale(s)) toplam += s.barberShare;
-  return round2(toplam);
+  let toplam = ZERO;
+  for (const s of sales) if (isActiveSale(s)) toplam = toplam.plus(money(s.barberShare));
+  return toNumber(round2(toplam));
 }
 
 /** Berbere fiilen ödenmiş toplam. */
 export function paidOut(payouts: PayoutRecord[]): number {
-  let toplam = 0;
-  for (const p of payouts) toplam += p.amount;
-  return round2(toplam);
+  return toNumber(round2(sum(payouts.map((p) => p.amount))));
 }
 
 /**
@@ -88,8 +90,8 @@ export function paidOut(payouts: PayoutRecord[]): number {
  * satış VOID edilirse berbere fazla ödenmiş olur. Rakamı sıfıra kırpmak
  * gerçeği saklardı; ekran bunu "fazla ödenmiş" olarak gösterir.
  */
-export function remainingPayout(accrued: number, paid: number): number {
-  return round2(accrued - paid);
+export function remainingPayout(accrued: MoneyInput, paid: MoneyInput): number {
+  return toNumber(round2(round2(accrued).minus(round2(paid))));
 }
 
 export type PayoutSummary = { accrued: number; paid: number; remaining: number };

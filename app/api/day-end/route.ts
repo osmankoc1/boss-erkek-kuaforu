@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
+import { serializeMoney } from "@/lib/money";
 import { requireAdmin } from "@/lib/dal";
 import { startOfDay, endOfDay } from "@/lib/sale";
 import { summarizeRevenue, summarizeByBarber } from "@/lib/revenue";
@@ -48,6 +49,6 @@ export async function GET(req: NextRequest) {
     totalBarberShare: ozet.barberShare,
     totalBusinessShare: ozet.businessShare,
     totalExpenses: ozet.expenses,
-    expenses,
+    expenses: expenses.map((e) => serializeMoney(e, ["amount"])),
   });
 }

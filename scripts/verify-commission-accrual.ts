@@ -28,6 +28,10 @@ import { assertWritableTestDatabase } from "../lib/db-guard";
 import { SignJWT } from "jose";
 import { istanbulDateString } from "../lib/tz";
 
+/** Prisma artik para alanlarini Decimal doner; testte sayiya cevrilir (Sira 9a). */
+const num = (v: unknown): number => (v === null || v === undefined ? 0 : Number(v));
+
+
 neonConfig.webSocketConstructor = ws;
 
 const BASE = process.env.TEST_BASE_URL ?? "http://localhost:3000";
@@ -190,8 +194,8 @@ async function main() {
         select: { barberShare: true, businessShare: true, barberCommissionRate: true },
       });
       console.log(`      satis 1000 TL | barberShare=${sale?.barberShare} businessShare=${sale?.businessShare} oran=%${sale?.barberCommissionRate}`);
-      check("Hakedis satis tutari uzerinden (1000 * %40 = 400)", sale?.barberShare === 400, `gelen ${sale?.barberShare}`);
-      check("Oran satis aninda snapshot'landi", sale?.barberCommissionRate === KOMISYON_ORANI, `gelen ${sale?.barberCommissionRate}`);
+      check("Hakedis satis tutari uzerinden (1000 * %40 = 400)", num(sale?.barberShare) === 400, `gelen ${sale?.barberShare}`);
+      check("Oran satis aninda snapshot'landi", num(sale?.barberCommissionRate) === KOMISYON_ORANI, `gelen ${sale?.barberCommissionRate}`);
       const h = await hakedis();
       check("Rapor tahakkuku 400 gosteriyor", h.satir?.accrued === 400, `gelen ${h.satir?.accrued}`);
     }
@@ -206,8 +210,8 @@ async function main() {
         select: { barberShare: true, saleStatus: true, paidAmount: true },
       });
       console.log(`      satis 500 TL, tahsilat 0 | durum=${sale?.saleStatus} barberShare=${sale?.barberShare}`);
-      check("Tahsilat 0 olsa da hakedis dogdu (500 * %40 = 200)", sale?.barberShare === 200, `gelen ${sale?.barberShare}`);
-      check("  ...satis gercekten veresiye", sale?.paidAmount === 0 && sale?.saleStatus === "CREDIT", `${sale?.saleStatus}/${sale?.paidAmount}`);
+      check("Tahsilat 0 olsa da hakedis dogdu (500 * %40 = 200)", num(sale?.barberShare) === 200, `gelen ${sale?.barberShare}`);
+      check("  ...satis gercekten veresiye", num(sale?.paidAmount) === 0 && sale?.saleStatus === "CREDIT", `${sale?.saleStatus}/${sale?.paidAmount}`);
       const h = await hakedis();
       check("Toplam tahakkuk 600 (400 + 200)", h.satir?.accrued === 600, `gelen ${h.satir?.accrued}`);
       check("Veresiyeli satis ayrica raporlaniyor", (h.satir?.creditSale ?? 0) === 500, `gelen ${h.satir?.creditSale}`);
@@ -220,7 +224,7 @@ async function main() {
       const r = await satisYap(c, barber.id, service, 300, 300, "CARD");
       walkInSaleId = (r.body as { sale?: { id: string } }).sale?.id ?? "";
       const sale = await db.sale.findFirst({ where: { customerId: c.id }, select: { barberShare: true, appointmentId: true } });
-      check("Walk-in satista da hakedis dogdu (300 * %40 = 120)", sale?.barberShare === 120, `gelen ${sale?.barberShare}`);
+      check("Walk-in satista da hakedis dogdu (300 * %40 = 120)", num(sale?.barberShare) === 120, `gelen ${sale?.barberShare}`);
       check("  ...randevusuz oldugu dogrulandi", sale?.appointmentId === null, `appointmentId=${sale?.appointmentId}`);
       const h = await hakedis();
       check("Toplam tahakkuk 720 (400+200+120)", h.satir?.accrued === 720, `gelen ${h.satir?.accrued}`);
@@ -257,7 +261,7 @@ async function main() {
         where: { barberId: barber.id, saleStatus: { not: "VOIDED" } },
         select: { id: true, barberShare: true },
       });
-      const elleToplam = Math.round(aktif.reduce((s, x) => s + x.barberShare, 0) * 100) / 100;
+      const elleToplam = Math.round(aktif.reduce((s, x) => s + num(x.barberShare), 0) * 100) / 100;
       check("Rapor toplami satislarin toplamiyla birebir", h1.satir?.accrued === elleToplam,
         `rapor ${h1.satir?.accrued} != satislar ${elleToplam}`);
       console.log(`      ${aktif.length} aktif satis, toplam tahakkuk ${elleToplam}`);
@@ -412,7 +416,7 @@ async function main() {
         `odenen ${h.satir?.totalPaid} > tahakkuk ${h.satir?.totalAccrued}`);
 
       const defterToplam = (await db.barberPayout.aggregate({ where: { barberId: barber.id }, _sum: { amount: true } }))._sum.amount ?? 0;
-      check("Defter toplami rapordaki odenen ile ayni", Math.round(defterToplam * 100) / 100 === h.satir!.totalPaid,
+      check("Defter toplami rapordaki odenen ile ayni", Math.round(num(defterToplam) * 100) / 100 === h.satir!.totalPaid,
         `defter ${defterToplam} vs rapor ${h.satir?.totalPaid}`);
     }
 
@@ -453,8 +457,8 @@ async function main() {
         _sum: { barberShare: true },
       });
       const defter = await db.barberPayout.aggregate({ where: { barberId: barber.id }, _sum: { amount: true } });
-      const gercekTahakkuk = Math.round((aktif._sum.barberShare ?? 0) * 100) / 100;
-      const gercekOdenen = Math.round((defter._sum.amount ?? 0) * 100) / 100;
+      const gercekTahakkuk = Math.round(num(aktif._sum.barberShare) * 100) / 100;
+      const gercekOdenen = Math.round(num(defter._sum.amount) * 100) / 100;
 
       check("Rapor tahakkuku = satislardan hesaplanan", s.totalAccrued === gercekTahakkuk, `${s.totalAccrued} vs ${gercekTahakkuk}`);
       check("Rapor odeneni = defterden hesaplanan", s.totalPaid === gercekOdenen, `${s.totalPaid} vs ${gercekOdenen}`);

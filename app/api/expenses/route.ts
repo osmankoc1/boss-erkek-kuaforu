@@ -1,11 +1,13 @@
 import { NextRequest } from "next/server";
+import { moneyAmount } from "@/lib/money-schema";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { serializeMoney } from "@/lib/money";
 import { requireAdmin } from "@/lib/dal";
 import { startOfDay, endOfDay } from "@/lib/sale";
 
 const schema = z.object({
-  amount: z.number().positive(),
+  amount: moneyAmount.positive(),
   category: z.string().min(1),
   description: z.string().optional().nullable(),
   expenseDate: z.string().optional(),
@@ -26,7 +28,7 @@ export async function GET(req: NextRequest) {
   if (category) where.category = category;
 
   const expenses = await db.expense.findMany({ where, orderBy: { expenseDate: "desc" } });
-  return Response.json({ expenses });
+  return Response.json({ expenses: expenses.map((e) => serializeMoney(e, ["amount"])) });
 }
 
 export async function POST(req: NextRequest) {
@@ -46,5 +48,5 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  return Response.json({ expense }, { status: 201 });
+  return Response.json({ expense: serializeMoney(expense, ["amount"]) }, { status: 201 });
 }

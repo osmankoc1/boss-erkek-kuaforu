@@ -1,5 +1,6 @@
 import { getSession } from "@/lib/session";
 import { db } from "@/lib/db";
+import { round2, toNumber, ZERO, type Money } from "@/lib/money";
 import { summarizeRevenue, expectedRevenue } from "@/lib/revenue";
 import { startOfIstanbulDay, startOfNextIstanbulDay, startOfIstanbulWeek, startOfIstanbulMonth, startOfNextIstanbulMonth, addIstanbulDays } from "@/lib/tz";
 import type { NextRequest } from "next/server";
@@ -125,33 +126,45 @@ export async function GET(req: NextRequest) {
 
   // --- Berber performansı ---
   const barberMap = new Map(barbers.map((b) => [b.id, b]));
-  const barberStats: Record<string, { id: string; name: string; total: number; completed: number; cancelled: number; revenue: number }> = {};
+  // Gelir birikimi Decimal ile; disa acilirken number'a cevrilir (Sira 9a).
+  const barberStats: Record<string, { id: string; name: string; total: number; completed: number; cancelled: number; revenue: Money }> = {};
   for (const a of rangeAppts) {
     if (!barberStats[a.barberId]) {
       const b = barberMap.get(a.barberId);
-      barberStats[a.barberId] = { id: a.barberId, name: b?.name ?? "?", total: 0, completed: 0, cancelled: 0, revenue: 0 };
+      barberStats[a.barberId] = { id: a.barberId, name: b?.name ?? "?", total: 0, completed: 0, cancelled: 0, revenue: ZERO };
     }
     barberStats[a.barberId].total++;
-    if (a.status === "completed") { barberStats[a.barberId].completed++; barberStats[a.barberId].revenue += a.appointmentPrice; }
+    if (a.status === "completed") {
+      barberStats[a.barberId].completed++;
+      barberStats[a.barberId].revenue = barberStats[a.barberId].revenue.plus(a.appointmentPrice);
+    }
     if (a.status === "cancelled") barberStats[a.barberId].cancelled++;
   }
   const barberPerformance = Object.values(barberStats)
-    .map((b) => ({ ...b, avgTicket: b.completed > 0 ? b.revenue / b.completed : 0 }))
+    .map((b) => ({
+      ...b,
+      revenue: toNumber(round2(b.revenue)),
+      avgTicket: b.completed > 0 ? toNumber(round2(b.revenue.dividedBy(b.completed))) : 0,
+    }))
     .sort((a, b) => b.revenue - a.revenue);
 
   // --- Hizmet performansı ---
-  const serviceStats: Record<string, { id: string; name: string; count: number; revenue: number }> = {};
+  const serviceStats: Record<string, { id: string; name: string; count: number; revenue: Money }> = {};
   for (const a of rangeAppts) {
     const svcId = a.serviceId ?? "unknown";
     const svcName = a.service?.name ?? "Bilinmiyor";
     if (!serviceStats[svcId]) {
-      serviceStats[svcId] = { id: svcId, name: svcName, count: 0, revenue: 0 };
+      serviceStats[svcId] = { id: svcId, name: svcName, count: 0, revenue: ZERO };
     }
     serviceStats[svcId].count++;
-    if (a.status === "completed") serviceStats[svcId].revenue += a.appointmentPrice;
+    if (a.status === "completed") serviceStats[svcId].revenue = serviceStats[svcId].revenue.plus(a.appointmentPrice);
   }
   const servicePerformance = Object.values(serviceStats)
-    .map((s) => ({ ...s, avgPrice: s.count > 0 ? s.revenue / s.count : 0 }))
+    .map((s) => ({
+      ...s,
+      revenue: toNumber(round2(s.revenue)),
+      avgPrice: s.count > 0 ? toNumber(round2(s.revenue.dividedBy(s.count))) : 0,
+    }))
     .sort((a, b) => b.count - a.count);
 
   // --- En yoğun saatler ---

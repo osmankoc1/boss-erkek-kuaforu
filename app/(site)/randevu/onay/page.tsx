@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { toNumber } from "@/lib/money";
 import { db } from "@/lib/db";
 import { formatPrice } from "@/lib/utils";
 import AnimatedCheckmark from "@/components/site/AnimatedCheckmark";
@@ -117,7 +118,7 @@ export default async function OnayPage({ searchParams }: { searchParams: Promise
               <p className="text-[#5a5a5a] text-[10px] uppercase tracking-wider">Hizmet Tutarı</p>
               <p className="text-[#9ca3af] text-xs mt-0.5">{appt.services?.length > 0 ? appt.services.reduce((s, i) => s + i.durationMinutes, 0) : (appt.service?.durationMinutes ?? 0)} dakika</p>
             </div>
-            <span className="text-[#c9762c] font-black text-2xl">{formatPrice(appt.appointmentPrice)}</span>
+            <span className="text-[#c9762c] font-black text-2xl">{formatPrice(toNumber(appt.appointmentPrice))}</span>
           </div>
         </div>
 

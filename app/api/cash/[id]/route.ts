@@ -3,10 +3,12 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
 import { calcShares, calcStatus } from "@/lib/sale";
+import { round2, serializeSale } from "@/lib/money";
+import { moneyAmount } from "@/lib/money-schema";
 
 const patchSchema = z.object({
-  saleAmount: z.number().min(0).optional(),
-  paidAmount: z.number().min(0).optional(),
+  saleAmount: moneyAmount.min(0).optional(),
+  paidAmount: moneyAmount.min(0).optional(),
   paymentMethod: z.enum(["CASH", "CARD", "TRANSFER", "OTHER"]).optional(),
   note: z.string().optional().nullable(),
 });
@@ -24,15 +26,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!existing) return Response.json({ error: "Satış bulunamadı." }, { status: 404 });
   if (existing.saleStatus === "VOIDED") return Response.json({ error: "İptal edilmiş satış düzenlenemez." }, { status: 400 });
 
-  const saleAmount = parsed.data.saleAmount ?? existing.saleAmount;
-  const paidAmount = parsed.data.paidAmount ?? existing.paidAmount;
-  const remainingAmount = Math.round((saleAmount - paidAmount) * 100) / 100;
+  const saleAmount = round2(parsed.data.saleAmount ?? existing.saleAmount);
+  const paidAmount = round2(parsed.data.paidAmount ?? existing.paidAmount);
+  const remainingAmount = round2(saleAmount.minus(paidAmount));
   const saleStatus = calcStatus(paidAmount, saleAmount);
   const { barberShare, businessShare } = calcShares(saleAmount, existing.barberWorkerType, existing.barberCommissionRate);
 
   // Odenen tutar degistiyse odeme defterine duzeltme satiri yazilir; boylece
   // Σ(odeme defteri) == sale.paidAmount degismezi korunur (FAZ 2 · Sira 3).
-  const fark = Math.round((paidAmount - existing.paidAmount) * 100) / 100;
+  const fark = round2(paidAmount.minus(existing.paidAmount));
 
   const [sale] = await db.$transaction([
     db.sale.update({
@@ -48,7 +50,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         note: parsed.data.note !== undefined ? parsed.data.note : existing.note,
       },
     }),
-    ...(fark !== 0
+    ...(!fark.isZero()
       ? [
           db.customerPayment.create({
             data: {
@@ -63,5 +65,5 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       : []),
   ]);
 
-  return Response.json({ sale });
+  return Response.json({ sale: serializeSale(sale) });
 }

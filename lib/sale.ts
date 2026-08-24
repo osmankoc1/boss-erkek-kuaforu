@@ -1,20 +1,33 @@
 import { startOfIstanbulDay, endOfIstanbulDay } from "./tz";
+import { money, round2, ZERO, type Money, type MoneyInput } from "./money";
 
+/**
+ * Berber payı ve işletme payı (FAZ 2 · Sıra 9a: Decimal).
+ *
+ * İşletme payı çıkarmayla bulunur (`saleAmount − barberShare`); böylece iki
+ * pay her zaman satış tutarına TAM eşit olur, yuvarlama artığı kaybolmaz.
+ */
 export function calcShares(
-  saleAmount: number,
+  saleAmount: MoneyInput,
   workerType: string,
-  commissionRate: number
-): { barberShare: number; businessShare: number } {
+  commissionRate: MoneyInput
+): { barberShare: Money; businessShare: Money } {
+  const tutar = money(saleAmount);
   const barberShare =
-    workerType === "COMMISSION"
-      ? Math.round(saleAmount * (commissionRate / 100) * 100) / 100
-      : 0;
-  return { barberShare, businessShare: Math.round((saleAmount - barberShare) * 100) / 100 };
+    workerType === "COMMISSION" ? round2(tutar.times(money(commissionRate)).dividedBy(100)) : ZERO;
+  return { barberShare, businessShare: round2(tutar.minus(barberShare)) };
 }
 
-export function calcStatus(paidAmount: number, saleAmount: number): string {
-  if (paidAmount >= saleAmount) return "PAID";
-  if (paidAmount > 0) return "PARTIAL";
+/**
+ * Satış durumu.
+ *
+ * Karşılaştırma Decimal metotlarıyla yapılır: `>=` operatörü Decimal
+ * nesnesini sayıya zorlar ve büyük değerlerde hassasiyet kaybeder.
+ */
+export function calcStatus(paidAmount: MoneyInput, saleAmount: MoneyInput): string {
+  const odenen = money(paidAmount);
+  if (odenen.greaterThanOrEqualTo(money(saleAmount))) return "PAID";
+  if (odenen.greaterThan(0)) return "PARTIAL";
   return "CREDIT";
 }
 

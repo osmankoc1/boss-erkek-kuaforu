@@ -15,6 +15,10 @@ import ws from "ws";
 import { assertWritableTestDatabase } from "../lib/db-guard";
 import { SignJWT } from "jose";
 
+/** Prisma artik para alanlarini Decimal doner; testte sayiya cevrilir (Sira 9a). */
+const n = (v: unknown): number => (v === null || v === undefined ? 0 : Number(v));
+
+
 neonConfig.webSocketConstructor = ws;
 
 const BASE_URL = process.env.TEST_BASE_URL ?? "http://localhost:3000";
@@ -157,7 +161,7 @@ async function main() {
       where: { note: TEST_TAG, saleStatus: { not: "VOIDED" } },
       select: { saleAmount: true },
     });
-    const expectedFromTests = testSalesToday.reduce((s, r) => s + r.saleAmount, 0);
+    const expectedFromTests = testSalesToday.reduce((s, r) => s + n(r.saleAmount), 0);
     check(
       `Gun Sonu'nda test satislari beklenen tutarda (${expectedFromTests} TL, ${testSalesToday.length} satis)`,
       testSalesToday.length === 2,

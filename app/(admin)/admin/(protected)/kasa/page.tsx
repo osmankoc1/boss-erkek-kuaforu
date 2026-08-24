@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { serializeSale, toNumber } from "@/lib/money";
 import { startOfDay, endOfDay } from "@/lib/sale";
 import { summarizeRevenue } from "@/lib/revenue";
 import { istanbulDateString } from "@/lib/tz";
@@ -51,9 +52,12 @@ export default async function KasaPage({ searchParams }: { searchParams: SearchP
       </div>
 
       <KasaClient
-        initialSales={sales.map((s) => ({ ...s, saleDate: s.saleDate.toISOString(), items: s.items ?? [] }))}
-        barbers={barbers.map((b) => ({ id: b.id, name: b.name, workerType: b.workerType, commissionRate: b.commissionRate }))}
-        services={services.map((s) => ({ id: s.id, name: s.name, price: s.price, durationMinutes: s.durationMinutes, category: s.category, displayOrder: s.displayOrder }))}
+        initialSales={sales.map((s) => ({
+          ...serializeSale({ ...s, items: s.items ?? [] }),
+          saleDate: s.saleDate.toISOString(),
+        }))}
+        barbers={barbers.map((b) => ({ id: b.id, name: b.name, workerType: b.workerType, commissionRate: toNumber(b.commissionRate) }))}
+        services={services.map((s) => ({ id: s.id, name: s.name, price: toNumber(s.price), durationMinutes: s.durationMinutes, category: s.category, displayOrder: s.displayOrder }))}
         selectedDate={selectedDate}
         dayCollected={summarizeRevenue({ sales: [], payments }).collected}
       />

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { serializeMoney, toNumber } from "@/lib/money";
 import { istanbulDateString } from "@/lib/tz";
 import { formatDate, STATUS_LABELS } from "@/lib/utils";
 import AppointmentActions from "./AppointmentActions";
@@ -87,7 +88,7 @@ export default async function RandevularPage({ searchParams }: { searchParams: S
       startTime: a.startTime,
       endTime: a.endTime,
       status: a.status,
-      appointmentPrice: a.appointmentPrice,
+      appointmentPrice: toNumber(a.appointmentPrice),
       customer: a.customer,
       service: a.service,
       services: a.services,
@@ -168,7 +169,7 @@ export default async function RandevularPage({ searchParams }: { searchParams: S
         <div className="flex items-center gap-3">
           <NewAppointmentButton
             barbers={modalBarbers}
-            services={modalServices}
+            services={modalServices.map((s) => serializeMoney(s, ["price"]))}
             defaultDate={selectedDate}
           />
 
@@ -352,12 +353,12 @@ export default async function RandevularPage({ searchParams }: { searchParams: S
                             customerPhone: a.customer.phone,
                             serviceId: a.serviceId ?? undefined,
                             serviceName: a.service?.name,
-                            appointmentPrice: a.appointmentPrice,
+                            appointmentPrice: toNumber(a.appointmentPrice),
                             services: a.services?.map((s) => ({
                               serviceId: s.serviceId,
                               serviceName: s.serviceName,
                               category: s.category,
-                              price: s.price,
+                              price: toNumber(s.price),
                               durationMinutes: s.durationMinutes,
                             })) ?? [],
                           }} />

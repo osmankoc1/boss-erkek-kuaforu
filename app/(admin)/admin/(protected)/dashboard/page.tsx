@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { round2, toNumber, ZERO, type Money } from "@/lib/money";
 import { summarizeRevenue, expectedRevenue } from "@/lib/revenue";
 import { startOfIstanbulDay, startOfNextIstanbulDay, startOfIstanbulWeek, startOfIstanbulMonth, startOfNextIstanbulMonth, addIstanbulDays } from "@/lib/tz";
 import { formatDate, formatPrice } from "@/lib/utils";
@@ -113,30 +114,42 @@ async function getStats(range: string, customFrom?: string, customTo?: string) {
 
   // Barber performance
   const barberMap = new Map(barbers.map((b) => [b.id, b]));
-  const barberStatsMap: Record<string, { id: string; name: string; total: number; completed: number; cancelled: number; revenue: number }> = {};
+  // Gelir birikimi Decimal ile; ekrana number olarak verilir (Sira 9a).
+  const barberStatsMap: Record<string, { id: string; name: string; total: number; completed: number; cancelled: number; revenue: Money }> = {};
   for (const a of rangeAppts) {
     if (!barberStatsMap[a.barberId]) {
-      barberStatsMap[a.barberId] = { id: a.barberId, name: barberMap.get(a.barberId)?.name ?? "?", total: 0, completed: 0, cancelled: 0, revenue: 0 };
+      barberStatsMap[a.barberId] = { id: a.barberId, name: barberMap.get(a.barberId)?.name ?? "?", total: 0, completed: 0, cancelled: 0, revenue: ZERO };
     }
     barberStatsMap[a.barberId].total++;
-    if (a.status === "completed") { barberStatsMap[a.barberId].completed++; barberStatsMap[a.barberId].revenue += a.appointmentPrice; }
+    if (a.status === "completed") {
+      barberStatsMap[a.barberId].completed++;
+      barberStatsMap[a.barberId].revenue = barberStatsMap[a.barberId].revenue.plus(a.appointmentPrice);
+    }
     if (a.status === "cancelled") barberStatsMap[a.barberId].cancelled++;
   }
   const barberPerformance = Object.values(barberStatsMap)
-    .map((b) => ({ ...b, avgTicket: b.completed > 0 ? b.revenue / b.completed : 0 }))
+    .map((b) => ({
+      ...b,
+      revenue: toNumber(round2(b.revenue)),
+      avgTicket: b.completed > 0 ? toNumber(round2(b.revenue.dividedBy(b.completed))) : 0,
+    }))
     .sort((a, b) => b.revenue - a.revenue);
 
   // Service performance
-  const serviceStatsMap: Record<string, { id: string; name: string; count: number; revenue: number }> = {};
+  const serviceStatsMap: Record<string, { id: string; name: string; count: number; revenue: Money }> = {};
   for (const a of rangeAppts) {
     const svcId = a.serviceId ?? "unknown";
     const svcName = a.service?.name ?? "Bilinmiyor";
-    if (!serviceStatsMap[svcId]) serviceStatsMap[svcId] = { id: svcId, name: svcName, count: 0, revenue: 0 };
+    if (!serviceStatsMap[svcId]) serviceStatsMap[svcId] = { id: svcId, name: svcName, count: 0, revenue: ZERO };
     serviceStatsMap[svcId].count++;
-    if (a.status === "completed") serviceStatsMap[svcId].revenue += a.appointmentPrice;
+    if (a.status === "completed") serviceStatsMap[svcId].revenue = serviceStatsMap[svcId].revenue.plus(a.appointmentPrice);
   }
   const servicePerformance = Object.values(serviceStatsMap)
-    .map((s) => ({ ...s, avgPrice: s.count > 0 ? s.revenue / s.count : 0 }))
+    .map((s) => ({
+      ...s,
+      revenue: toNumber(round2(s.revenue)),
+      avgPrice: s.count > 0 ? toNumber(round2(s.revenue.dividedBy(s.count))) : 0,
+    }))
     .sort((a, b) => b.count - a.count);
 
   // Busiest hours
@@ -212,12 +225,12 @@ async function getStats(range: string, customFrom?: string, customTo?: string) {
     busiestDays,
     customers: { total: totalCustomers, newThisMonth: newCustomers, returning: returningCustomers, rate: totalCustomers > 0 ? Math.round((returningCustomers / totalCustomers) * 100) : 0 },
     kasa: {
-      todaySales: todaySalesAgg._sum.saleAmount ?? 0,
-      todayCollection: todaySalesAgg._sum.paidAmount ?? 0,
-      todayCredit: todaySalesAgg._sum.remainingAmount ?? 0,
+      todaySales: toNumber(todaySalesAgg._sum.saleAmount ?? 0),
+      todayCollection: toNumber(todaySalesAgg._sum.paidAmount ?? 0),
+      todayCredit: toNumber(todaySalesAgg._sum.remainingAmount ?? 0),
       todayCount: todaySalesAgg._count.id,
-      monthSales: monthSalesAgg._sum.saleAmount ?? 0,
-      monthCollection: monthSalesAgg._sum.paidAmount ?? 0,
+      monthSales: toNumber(monthSalesAgg._sum.saleAmount ?? 0),
+      monthCollection: toNumber(monthSalesAgg._sum.paidAmount ?? 0),
       pendingKasa: pendingKasaCount,
     },
     last30Days: last30Days.map((d) => ({

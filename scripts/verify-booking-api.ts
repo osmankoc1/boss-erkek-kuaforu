@@ -145,7 +145,10 @@ async function main() {
         `gelen ${saved?.endTime}`
       );
       check("AppointmentService satiri olustu", (saved?.services.length ?? 0) === 1);
-      check("appointmentPrice yazildi", saved?.appointmentPrice === service.price, `gelen ${saved?.appointmentPrice}`);
+      // Decimal nesneleri `===` ile kimlik olarak karsilastirilir; deger
+      // karsilastirmasi icin sayiya cevrilir (FAZ 2 · Sira 9a).
+      check("appointmentPrice yazildi", Number(saved?.appointmentPrice) === Number(service.price),
+        `gelen ${saved?.appointmentPrice}`);
       check("Musteri kaydi olustu", saved?.customer.phone === phoneA);
       check("verificationToken uretildi", !!saved?.verificationToken);
     }

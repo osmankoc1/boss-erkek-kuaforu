@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { rateAmount } from "./money-schema";
 
 /**
  * Admin CRUD endpoint'lerinin giriş şemaları.
@@ -40,7 +41,7 @@ const barberFields = {
     .regex(/^#[0-9a-fA-F]{6}$/, "Renk #RRGGBB biçiminde olmalıdır."),
   isActive: z.boolean(),
   workerType: z.enum(["OWNER", "COMMISSION"]),
-  commissionRate: z.number().min(0).max(100),
+  commissionRate: rateAmount.min(0).max(100),
 };
 
 /** Yeni çalışan: yalnızca `name` zorunlu, kalanı varsayılana düşer. */

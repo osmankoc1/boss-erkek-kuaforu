@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { hasValidMoneyScale, MONEY_SCALE_ERROR, serializeMoney } from "@/lib/money";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
 
@@ -9,7 +10,7 @@ export async function GET(req: NextRequest) {
     where,
     orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
   });
-  return Response.json({ services });
+  return Response.json({ services: services.map((s) => serializeMoney(s, ["price"])) });
 }
 
 export async function POST(req: NextRequest) {
@@ -17,6 +18,12 @@ export async function POST(req: NextRequest) {
   if (!session?.userId) return Response.json({ error: "Yetkisiz." }, { status: 401 });
 
   const body = await req.json();
+
+  // Fiyat kurusa yuvarlanmis olmali; sunucu sessizce yuvarlamaz (Sira 9a).
+  const price = Number(body.price) || 0;
+  if (!hasValidMoneyScale(price)) {
+    return Response.json({ error: MONEY_SCALE_ERROR }, { status: 400 });
+  }
 
   const maxOrder = await db.service.aggregate({ _max: { displayOrder: true } });
   const nextOrder = (maxOrder._max.displayOrder ?? 0) + 1;
@@ -26,10 +33,10 @@ export async function POST(req: NextRequest) {
       name: body.name,
       description: body.description || null,
       durationMinutes: Number(body.durationMinutes) || 30,
-      price: Number(body.price) || 0,
+      price,
       category: body.category || "Diğer",
       displayOrder: nextOrder,
     },
   });
-  return Response.json({ service }, { status: 201 });
+  return Response.json({ service: serializeMoney(service, ["price"]) }, { status: 201 });
 }

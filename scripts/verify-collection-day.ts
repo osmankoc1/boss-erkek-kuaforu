@@ -21,6 +21,10 @@ import { assertWritableTestDatabase } from "../lib/db-guard";
 import { SignJWT } from "jose";
 import { istanbulDateString, addIstanbulDays } from "../lib/tz";
 
+/** Prisma artik para alanlarini Decimal doner; testte sayiya cevrilir (Sira 9a). */
+const n = (v: unknown): number => (v === null || v === undefined ? 0 : Number(v));
+
+
 neonConfig.webSocketConstructor = ws;
 
 const BASE = process.env.TEST_BASE_URL ?? "http://localhost:3000";
@@ -178,18 +182,18 @@ async function main() {
     console.log("\nTEST 5 — Odeme defteri (CustomerPayment) satisla tutarli");
     const sale = await db.sale.findUnique({ where: { id: saleId }, select: { paidAmount: true, remainingAmount: true, saleStatus: true } });
     const payments = await db.customerPayment.findMany({ where: { saleId }, select: { amount: true, paymentDate: true, paymentMethod: true } });
-    const defterToplam = payments.reduce((s, p) => s + p.amount, 0);
+    const defterToplam = payments.reduce((s, p) => s + n(p.amount), 0);
     console.log(`      defterde ${payments.length} kayit, toplam ${defterToplam} | sale.paidAmount ${sale?.paidAmount}`);
     for (const p of payments) {
       console.log(`        ${istanbulDateString(p.paymentDate)}  ${p.amount} TL  ${p.paymentMethod}`);
     }
     check("Satis olusturulurken pesin odeme deftere yazildi", payments.length >= 2,
       `defterde ${payments.length} kayit (pesin + tahsilat beklenir)`);
-    check("Defter toplami = sale.paidAmount", Math.abs(defterToplam - (sale?.paidAmount ?? 0)) < 0.01,
+    check("Defter toplami = sale.paidAmount", Math.abs(defterToplam - n(sale?.paidAmount)) < 0.01,
       `defter ${defterToplam} != satis ${sale?.paidAmount}`);
-    check(`sale.paidAmount = ${PESIN + BUGUNKU_TAHSILAT}`, sale?.paidAmount === PESIN + BUGUNKU_TAHSILAT,
+    check(`sale.paidAmount = ${PESIN + BUGUNKU_TAHSILAT}`, n(sale?.paidAmount) === PESIN + BUGUNKU_TAHSILAT,
       `gelen ${sale?.paidAmount}`);
-    check("Kalan tutar dogru", sale?.remainingAmount === SATIS - PESIN - BUGUNKU_TAHSILAT,
+    check("Kalan tutar dogru", n(sale?.remainingAmount) === SATIS - PESIN - BUGUNKU_TAHSILAT,
       `gelen ${sale?.remainingAmount}`);
 
     // ── TEST 6 — Ödeme yöntemi kırılımı doğru güne/yönteme yazılıyor ──────

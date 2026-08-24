@@ -12,6 +12,8 @@ import {
   resolvePeriod,
 } from "@/lib/payout";
 import { buildCommissionReport } from "@/lib/commission-report";
+import { money, round2, toNumber, serializeMoney } from "@/lib/money";
+import { moneyAmount } from "@/lib/money-schema";
 
 /**
  * Hakediş ödeme defteri (FAZ 2 · Sıra 8).
@@ -22,7 +24,7 @@ import { buildCommissionReport } from "@/lib/commission-report";
 
 const schema = z.object({
   barberId: z.string().min(1),
-  amount: z.number().positive(),
+  amount: moneyAmount.positive(),
   paymentMethod: z.enum(PAYOUT_METHODS).default("CASH"),
   periodStart: z.string().min(1),
   periodEnd: z.string().min(1),
@@ -40,8 +42,6 @@ const schema = z.object({
  * olarak engeller: pencere kaçırsa bile ikinci ödeme kalanı aşarsa reddedilir.
  */
 const MUKERRER_PENCERE_MS = 10_000;
-
-const r2 = (n: number) => Math.round(n * 100) / 100;
 
 export async function GET(req: NextRequest) {
   const unauthorized = await requireAdmin();
@@ -106,20 +106,20 @@ export async function POST(req: NextRequest) {
         tx.sale.aggregate({ where: { barberId, ...ACTIVE_SALE_FILTER }, _sum: { barberShare: true } }),
         tx.barberPayout.aggregate({ where: { barberId }, _sum: { amount: true } }),
       ]);
-      const accrued = r2(accrualAgg._sum.barberShare ?? 0);
-      const paid = r2(paidAgg._sum.amount ?? 0);
+      const accrued = toNumber(round2(accrualAgg._sum.barberShare ?? 0));
+      const paid = toNumber(round2(paidAgg._sum.amount ?? 0));
       const kalan = remainingPayout(accrued, paid);
 
       if (kalan <= 0) return { kind: "no_remaining" as const, accrued, paid, kalan };
 
       // Kalanın üstü SESSİZCE KIRPILMAZ; istek reddedilir, hiçbir şey yazılmaz.
-      if (r2(amount) > kalan) return { kind: "too_much" as const, accrued, paid, kalan };
+      if (round2(amount).greaterThan(kalan)) return { kind: "too_much" as const, accrued, paid, kalan };
 
       const pencereBasi = new Date(Date.now() - MUKERRER_PENCERE_MS);
       const ayni = await tx.barberPayout.findFirst({
         where: {
           barberId,
-          amount: r2(amount),
+          amount: round2(amount),
           periodStart: period.periodStart,
           periodEnd: period.periodEnd,
           createdAt: { gte: pencereBasi },
@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
       const payout = await tx.barberPayout.create({
         data: {
           barberId,
-          amount: r2(amount),
+          amount: round2(amount),
           paymentMethod,
           periodStart: period.periodStart,
           periodEnd: period.periodEnd,
@@ -145,7 +145,11 @@ export async function POST(req: NextRequest) {
       return {
         kind: "created" as const,
         payout,
-        summary: { accrued, paid: r2(paid + amount), remaining: remainingPayout(accrued, r2(paid + amount)) },
+        summary: {
+          accrued,
+          paid: toNumber(round2(money(paid).plus(amount))),
+          remaining: remainingPayout(accrued, round2(money(paid).plus(amount))),
+        },
       };
     },
     { maxWait: 5_000, timeout: 15_000 }
@@ -197,6 +201,9 @@ export async function POST(req: NextRequest) {
         { status: 409 }
       );
     default:
-      return Response.json({ payout: outcome.payout, summary: outcome.summary }, { status: 201 });
+      return Response.json(
+        { payout: serializeMoney(outcome.payout, ["amount"]), summary: outcome.summary },
+        { status: 201 }
+      );
   }
 }

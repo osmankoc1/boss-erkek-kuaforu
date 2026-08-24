@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
+import { serializeSales } from "@/lib/money";
 import { requireAdmin } from "@/lib/dal";
 import { startOfDay, endOfDay } from "@/lib/sale";
 import { addIstanbulDays, startOfIstanbulMonth } from "@/lib/tz";
@@ -38,5 +39,5 @@ export async function GET(req: NextRequest) {
     daysAgo: Math.floor((now.getTime() - new Date(s.saleDate).getTime()) / 86400000),
   }));
 
-  return Response.json({ debts: result });
+  return Response.json({ debts: serializeSales(result) });
 }

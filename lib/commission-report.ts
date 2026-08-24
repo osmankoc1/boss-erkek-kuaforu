@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { startOfDay, endOfDay } from "@/lib/sale";
 import { addIstanbulDays, startOfIstanbulMonth } from "@/lib/tz";
 import { ACTIVE_SALE_FILTER, canReceivePayout, remainingPayout } from "@/lib/payout";
+import { money, round2, toNumber, ZERO, type Money } from "@/lib/money";
 
 /**
  * Hakediş raporunun TEK üretim yeri (FAZ 2 · Sıra 8).
@@ -118,7 +119,7 @@ export type CommissionReport = CommissionRange & {
   };
 };
 
-const r2 = (n: number) => Math.round(n * 100) / 100;
+
 
 export async function buildCommissionReport(input: {
   range?: string | null;
@@ -144,17 +145,30 @@ export async function buildCommissionReport(input: {
   ]);
 
   const barberById = new Map(barbers.map((b) => [b.id, b]));
-  const lifetimeAccruedById = new Map(lifetimeSales.map((g) => [g.barberId, g._sum.barberShare ?? 0]));
-  const lifetimePaidById = new Map(lifetimePayouts.map((g) => [g.barberId, g._sum.amount ?? 0]));
+  // groupBy toplamlari Decimal doner; birikimde oyle tutulur.
+  const lifetimeAccruedById = new Map(lifetimeSales.map((g) => [g.barberId, money(g._sum.barberShare ?? 0)]));
+  const lifetimePaidById = new Map(lifetimePayouts.map((g) => [g.barberId, money(g._sum.amount ?? 0)]));
 
-  const rows = new Map<string, CommissionRow>();
+  // Birikim Decimal ile yapilir; disa acilan satirlar sonda number'a cevrilir.
+  type Birikim = Omit<
+    CommissionRow,
+    "totalSale" | "accrued" | "barberShare" | "paid" | "periodRemaining" | "businessShare" | "creditSale"
+  > & {
+    totalSale: Money;
+    accrued: Money;
+    paid: Money;
+    businessShare: Money;
+    creditSale: Money;
+  };
 
-  function satirAl(barberId: string, fallbackName: string, workerType: string, rate: number): CommissionRow {
+  const rows = new Map<string, Birikim>();
+
+  function satirAl(barberId: string, fallbackName: string, workerType: string, rate: number): Birikim {
     let row = rows.get(barberId);
     if (!row) {
       const guncel = barberById.get(barberId);
-      const totalAccrued = r2(lifetimeAccruedById.get(barberId) ?? 0);
-      const totalPaid = r2(lifetimePaidById.get(barberId) ?? 0);
+      const totalAccrued = toNumber(round2(lifetimeAccruedById.get(barberId) ?? ZERO));
+      const totalPaid = toNumber(round2(lifetimePaidById.get(barberId) ?? ZERO));
       row = {
         barberId,
         barberName: guncel?.name ?? fallbackName,
@@ -164,13 +178,11 @@ export async function buildCommissionReport(input: {
         // geçmişteki bir satışın anlık görüntüsünden değil.
         eligible: canReceivePayout(guncel?.workerType ?? workerType),
         count: 0,
-        totalSale: 0,
-        businessShare: 0,
-        creditSale: 0,
-        accrued: 0,
-        barberShare: 0,
-        paid: 0,
-        periodRemaining: 0,
+        totalSale: ZERO,
+        businessShare: ZERO,
+        creditSale: ZERO,
+        accrued: ZERO,
+        paid: ZERO,
         totalAccrued,
         totalPaid,
         totalRemaining: remainingPayout(totalAccrued, totalPaid),
@@ -181,12 +193,12 @@ export async function buildCommissionReport(input: {
   }
 
   for (const s of sales) {
-    const row = satirAl(s.barberId, s.barberName, s.barberWorkerType, s.barberCommissionRate);
+    const row = satirAl(s.barberId, s.barberName, s.barberWorkerType, toNumber(s.barberCommissionRate));
     row.count += 1;
-    row.totalSale += s.saleAmount;
-    row.accrued += s.barberShare;
-    row.businessShare += s.businessShare;
-    if (s.saleStatus !== "PAID") row.creditSale += s.remainingAmount;
+    row.totalSale = row.totalSale.plus(money(s.saleAmount));
+    row.accrued = row.accrued.plus(money(s.barberShare));
+    row.businessShare = row.businessShare.plus(money(s.businessShare));
+    if (s.saleStatus !== "PAID") row.creditSale = row.creditSale.plus(money(s.remainingAmount));
   }
 
   // Dönemde satışı olmayıp ödemesi olan berber de raporda görünmeli; aksi
@@ -197,42 +209,48 @@ export async function buildCommissionReport(input: {
       p.barberId,
       p.barber.name,
       guncel?.workerType ?? "COMMISSION",
-      guncel?.commissionRate ?? 0
+      guncel ? toNumber(guncel.commissionRate) : 0
     );
-    row.paid += p.amount;
+    row.paid = row.paid.plus(money(p.amount));
   }
 
-  for (const row of rows.values()) {
-    row.totalSale = r2(row.totalSale);
-    row.accrued = r2(row.accrued);
-    row.barberShare = row.accrued;
-    row.businessShare = r2(row.businessShare);
-    row.creditSale = r2(row.creditSale);
-    row.paid = r2(row.paid);
-    row.periodRemaining = r2(row.accrued - row.paid);
-  }
+  // TEK donusum noktasi: buradan sonrasi number'dir.
+  const commissions: CommissionRow[] = Array.from(rows.values())
+    .map((row) => {
+      const accrued = round2(row.accrued);
+      const paid = round2(row.paid);
+      return {
+        ...row,
+        totalSale: toNumber(round2(row.totalSale)),
+        accrued: toNumber(accrued),
+        barberShare: toNumber(accrued),
+        businessShare: toNumber(round2(row.businessShare)),
+        creditSale: toNumber(round2(row.creditSale)),
+        paid: toNumber(paid),
+        periodRemaining: toNumber(round2(accrued.minus(money(paid)))),
+      };
+    })
+    .sort((a, b) => b.accrued - a.accrued);
 
-  const commissions = Array.from(rows.values()).sort((a, b) => b.accrued - a.accrued);
+  const topla = (pick: (c: CommissionRow) => number) =>
+    toNumber(round2(commissions.reduce((acc, c) => acc.plus(pick(c)), ZERO)));
 
-  const totals = commissions.reduce(
-    (acc, c) => ({
-      totalSale: r2(acc.totalSale + c.totalSale),
-      accrued: r2(acc.accrued + c.accrued),
-      barberShare: r2(acc.barberShare + c.accrued),
-      businessShare: r2(acc.businessShare + c.businessShare),
-      creditSale: r2(acc.creditSale + c.creditSale),
-      paid: r2(acc.paid + c.paid),
-      periodRemaining: r2(acc.periodRemaining + c.periodRemaining),
-      totalRemaining: r2(acc.totalRemaining + c.totalRemaining),
-    }),
-    { totalSale: 0, accrued: 0, barberShare: 0, businessShare: 0, creditSale: 0, paid: 0, periodRemaining: 0, totalRemaining: 0 }
-  );
+  const totals = {
+    totalSale: topla((c) => c.totalSale),
+    accrued: topla((c) => c.accrued),
+    barberShare: topla((c) => c.accrued),
+    businessShare: topla((c) => c.businessShare),
+    creditSale: topla((c) => c.creditSale),
+    paid: topla((c) => c.paid),
+    periodRemaining: topla((c) => c.periodRemaining),
+    totalRemaining: topla((c) => c.totalRemaining),
+  };
 
   const payouts: PayoutHistoryRow[] = periodPayouts.map((p) => ({
     id: p.id,
     barberId: p.barberId,
     barberName: p.barber.name,
-    amount: p.amount,
+    amount: toNumber(p.amount),
     paymentMethod: p.paymentMethod,
     periodStart: p.periodStart.toISOString(),
     periodEnd: p.periodEnd.toISOString(),

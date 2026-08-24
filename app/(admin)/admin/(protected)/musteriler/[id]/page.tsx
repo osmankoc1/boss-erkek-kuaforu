@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { money, round2, sumBy, toNumber, ZERO, type Money } from "@/lib/money";
 import { STATUS_LABELS, TAG_LABELS } from "@/lib/utils";
 import CustomerTagEditor from "./CustomerTagEditor";
 import MergeCustomerButton from "./MergeCustomerButton";
@@ -45,10 +46,13 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
   const activeSales = allSales.filter((s) => s.saleStatus !== "VOIDED");
 
   // ── CRM İstatistikleri ──
-  const totalSaleAmount = activeSales.reduce((s, r) => s + r.saleAmount, 0);
-  const totalPaidAmount = activeSales.reduce((s, r) => s + r.paidAmount, 0);
-  const totalDebt = activeSales.reduce((s, r) => s + r.remainingAmount, 0);
-  const avgSpend = activeSales.length > 0 ? totalSaleAmount / activeSales.length : 0;
+  const totalSaleAmount = toNumber(sumBy(activeSales, (r) => r.saleAmount));
+  const totalPaidAmount = toNumber(sumBy(activeSales, (r) => r.paidAmount));
+  const totalDebt = toNumber(sumBy(activeSales, (r) => r.remainingAmount));
+  const avgSpend =
+    activeSales.length > 0
+      ? toNumber(round2(money(totalSaleAmount).dividedBy(activeSales.length)))
+      : 0;
   const firstVisitAt = allSales.length > 0 ? allSales[0].saleDate : customer.createdAt;
 
   const serviceCount: Record<string, number> = {};
@@ -70,9 +74,9 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
     bakiye: number;
   };
 
-  const paymentsBySaleId = new Map<string, number>();
+  const paymentsBySaleId = new Map<string, Money>();
   for (const p of allPayments) {
-    if (p.saleId) paymentsBySaleId.set(p.saleId, (paymentsBySaleId.get(p.saleId) ?? 0) + p.amount);
+    if (p.saleId) paymentsBySaleId.set(p.saleId, (paymentsBySaleId.get(p.saleId) ?? ZERO).plus(p.amount));
   }
 
   const rawEntries: Omit<EkstreRow, "bakiye">[] = [];
@@ -82,19 +86,19 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
       date: sale.saleDate,
       type: "Satış",
       description: sale.serviceName,
-      borç: sale.saleAmount,
+      borç: toNumber(sale.saleAmount),
       alacak: 0,
     });
     // Satışa gömülü anlık ödeme
-    const subsequent = paymentsBySaleId.get(sale.id) ?? 0;
-    const initial = Math.round((sale.paidAmount - subsequent) * 100) / 100;
-    if (initial > 0) {
+    const subsequent = paymentsBySaleId.get(sale.id) ?? ZERO;
+    const initial = round2(money(sale.paidAmount).minus(subsequent));
+    if (initial.greaterThan(0)) {
       rawEntries.push({
         date: sale.saleDate,
         type: "Tahsilat",
         description: `${METHOD_LABELS[sale.paymentMethod] ?? sale.paymentMethod} · ${sale.serviceName}`,
         borç: 0,
-        alacak: initial,
+        alacak: toNumber(initial),
       });
     }
   }
@@ -105,7 +109,7 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
       type: "Tahsilat",
       description: `${METHOD_LABELS[p.paymentMethod] ?? p.paymentMethod} Borç Tahsilatı`,
       borç: 0,
-      alacak: p.amount,
+      alacak: toNumber(p.amount),
     });
   }
 
