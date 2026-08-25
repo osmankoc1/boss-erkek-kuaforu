@@ -72,6 +72,13 @@ const FIELD_LABELS: Record<string, string> = {
   mergedIntoCustomerId: "Birleştirildiği müşteri",
   fullName: "Ad soyad",
   phone: "Telefon",
+  // Randevu alanlari (FAZ 3 · Sıra 3.2)
+  date: "Randevu tarihi",
+  startTime: "Başlangıç saati",
+  barberId: "Çalışan",
+  appointmentPrice: "Randevu tutarı",
+  customerId: "Müşteri",
+  saleIds: "Bağlı satış(lar)",
 };
 
 const goster = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v));

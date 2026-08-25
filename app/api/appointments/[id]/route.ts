@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { isAuditableStatusChange, writeAudit, PUBLIC_ACTOR } from "@/lib/audit";
+import { isAuditableStatusChange, writeAudit, deletedFields, PUBLIC_ACTOR } from "@/lib/audit";
 import { adminActor } from "@/lib/audit-actor";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -185,15 +185,55 @@ export async function DELETE(_req: NextRequest, ctx: RouteContext<"/api/appointm
   if (!session?.userId) return Response.json({ error: "Yetkisiz." }, { status: 401 });
 
   const { id } = await ctx.params;
+  const actor = await adminActor();
+
   try {
-    // Silme ve sayac guncellemesi tek transaction: silinen randevu
-    // sayaclarda asili kalmaz (FAZ 2 · Sira 7).
+    // Silme, sayac guncellemesi ve denetim izi tek transaction: silinen
+    // randevu sayaclarda asili kalmaz (FAZ 2 · Sira 7) ve denetim izi
+    // yazilamazsa silme de geri alinir (FAZ 2 · Sira 10b degismezi).
     await db.$transaction(async (tx) => {
+      // ── Bagli satislar SILMEDEN ONCE okunur (FAZ 3 · Sira 3.2) ──────────
+      // `Sale.appointmentId` opsiyonel bir iliski oldugu icin randevu
+      // silindiginde Prisma onu NULL'a ceker. Satis ayakta kalir, parasi
+      // durur; ama HANGI RANDEVUDAN geldigi bilgisi kalici olarak kaybolur.
+      // Ne satista, ne randevuda bu bag bir daha kurulamaz -- denetim izi
+      // onu tasiyan tek yer oldugu icin bag koparilmadan once okunmalidir.
+      // VOID edilmis satislar da dahildir: onlarin satiri da silinmez ve
+      // ayni sekilde bagini kaybeder.
+      const bagliSatislar = await tx.sale.findMany({
+        where: { appointmentId: id },
+        select: { id: true },
+        orderBy: { createdAt: "asc" },
+      });
+
       const silinen = await tx.appointment.delete({
         where: { id },
-        select: { customerId: true },
+        select: {
+          customerId: true,
+          status: true,
+          date: true,
+          startTime: true,
+          barberId: true,
+          appointmentPrice: true,
+        },
       });
+
       await recalculateCustomerCounters(tx, silinen.customerId);
+
+      await writeAudit(tx, {
+        entity: "Appointment",
+        entityId: id,
+        action: "DELETE",
+        actor,
+        changes: deletedFields("Appointment", {
+          ...silinen,
+          // Bagli satis yoksa alan hic YAZILMAZ. `{ before: null }` yazmak
+          // "bag yoktu" ile "bagi kaydetmedik" arasindaki farki silerdi.
+          ...(bagliSatislar.length
+            ? { saleIds: bagliSatislar.map((s) => s.id).join(",") }
+            : {}),
+        }),
+      });
     });
   } catch (error) {
     // Var olmayan randevu: Prisma P2025 firlatir. PATCH ile ayni sekilde

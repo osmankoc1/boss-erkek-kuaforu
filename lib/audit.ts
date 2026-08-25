@@ -77,7 +77,11 @@ const AUDIT_FIELDS: Record<AuditEntity, readonly string[]> = {
   BarberPayout: ["amount", "paymentMethod", "barberId", "periodStart", "periodEnd", "note"],
   Expense: ["amount", "category", "description", "expenseDate"],
   Customer: ["fullName", "phone", "email", "tag", "mergedIntoCustomerId"],
-  Appointment: ["status", "date", "startTime", "barberId", "appointmentPrice"],
+  // `saleIds` ve `customerId` randevunun kendi sutunlari DEGILDIR; silme
+  // aninda turetilip iz'e yazilan bag bilgisidir (FAZ 3 · Sira 3.2). Randevu
+  // silindiginde `Sale.appointmentId` NULL'a cekilir ve bag kalici olarak
+  // kaybolur; denetim izi bu bagi tasiyan TEK yerdir.
+  Appointment: ["status", "date", "startTime", "barberId", "appointmentPrice", "customerId", "saleIds"],
   Setting: ["value"],
 };
 
