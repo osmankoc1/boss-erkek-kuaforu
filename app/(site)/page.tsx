@@ -7,7 +7,30 @@ import { PUBLIC_BARBER_SELECT } from "@/lib/public-fields";
 import AnimatedHero from "@/components/site/AnimatedHero";
 import { FadeIn, HoverLift } from "@/components/site/Animate";
 
+/**
+ * Ana sayfa saatte bir yeniden üretilir (FAZ 3 · Sıra 3.1).
+ *
+ * Bu sayfa `○` yani statik prerender ediliyor ve kampanya görünürlüğü
+ * ZAMANA bağlı: `startDate <= şimdi <= endDate`. Süresi dolan kampanyanın
+ * düşmesi ya da ileri tarihli kampanyanın başlaması için hiçbir mutasyon
+ * gerçekleşmez — `revalidatePath` bu durumu çözemez.
+ *
+ * ISR bu boşluğu kapatır: sayfa en fazla bir saat bayat kalır, statik
+ * kalmaya ve hızlı servis edilmeye devam eder. `force-dynamic` bilinçli
+ * olarak SEÇİLMEDİ; her isteği veritabanına gitmek public performansı
+ * gereksiz yere bozardı.
+ *
+ * Değer sabit olmalı (Next.js statik analiz eder): `60 * 60` geçersizdir.
+ */
+export const revalidate = 3600;
+
 export default async function HomePage() {
+  // Tek referans an: kampanya SORGUSU ile ekrandaki "gün kaldı" hesabı aynı
+  // anı kullanmalı. Ayrı ayrı `new Date()` / `Date.now()` çağırmak hem render
+  // sırasında impure çağrıdır (react-hooks/purity) hem de sorgu ile gösterim
+  // arasında milisaniyelik tutarsızlık bırakır.
+  const simdi = new Date();
+
   const [services, barbers, campaigns, settingsRows, hoursText] = await Promise.all([
     db.service.findMany({ where: { isActive: true }, take: 4 }),
     db.barber.findMany({ where: { isActive: true }, select: PUBLIC_BARBER_SELECT, take: 3 }),
@@ -15,8 +38,8 @@ export default async function HomePage() {
       where: {
         isActive: true,
         showOnHome: true,
-        endDate: { gte: new Date() },
-        startDate: { lte: new Date() },
+        endDate: { gte: simdi },
+        startDate: { lte: simdi },
       },
       orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
     }),
@@ -59,7 +82,7 @@ export default async function HomePage() {
 
             <div className="space-y-4">
               {campaigns.map((c, idx, arr) => {
-                const daysLeft = Math.ceil((new Date(c.endDate).getTime() - Date.now()) / 86400000);
+                const daysLeft = Math.ceil((new Date(c.endDate).getTime() - simdi.getTime()) / 86400000);
                 const isUrgent = daysLeft <= 7;
 
                 return (

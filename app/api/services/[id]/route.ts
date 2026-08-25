@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import { hasValidMoneyScale, MONEY_SCALE_ERROR, serializeMoney } from "@/lib/money";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
@@ -6,6 +7,17 @@ import { getSession } from "@/lib/session";
 async function requireAdmin() {
   const session = await getSession();
   return session?.userId ?? null;
+}
+
+/**
+ * Hizmet değişikliği public sayfaları etkiler (FAZ 3 · Sıra 3.1).
+ *
+ * `/hizmetler` ve `/` build zamanında statik üretiliyor. Bu çağrı olmadan
+ * yeni/güncellenen hizmet, bir sonraki deploy'a kadar sitede GÖRÜNMÜYORDU.
+ */
+function hizmetSayfalariniYenile() {
+  revalidatePath("/hizmetler");
+  revalidatePath("/");
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -42,6 +54,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   try {
     const service = await db.service.update({ where: { id }, data });
+    hizmetSayfalariniYenile();
     return Response.json({ service: serializeMoney(service, ["price"]) });
   } catch (err) {
     console.error("Service PATCH error:", err);
@@ -57,6 +70,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
 
   try {
     await db.service.delete({ where: { id } });
+    hizmetSayfalariniYenile();
     return Response.json({ ok: true });
   } catch (err) {
     console.error("Service DELETE error:", err);

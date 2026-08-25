@@ -1,7 +1,19 @@
 import { NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import { hasValidMoneyScale, MONEY_SCALE_ERROR, serializeMoney } from "@/lib/money";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
+
+/**
+ * Hizmet değişikliği public sayfaları etkiler (FAZ 3 · Sıra 3.1).
+ *
+ * `/hizmetler` ve `/` build zamanında statik üretiliyor. Bu çağrı olmadan
+ * yeni/güncellenen hizmet, bir sonraki deploy'a kadar sitede GÖRÜNMÜYORDU.
+ */
+function hizmetSayfalariniYenile() {
+  revalidatePath("/hizmetler");
+  revalidatePath("/");
+}
 
 export async function GET(req: NextRequest) {
   const showAll = req.nextUrl.searchParams.get("all") === "1";
@@ -38,5 +50,6 @@ export async function POST(req: NextRequest) {
       displayOrder: nextOrder,
     },
   });
+  hizmetSayfalariniYenile();
   return Response.json({ service: serializeMoney(service, ["price"]) }, { status: 201 });
 }

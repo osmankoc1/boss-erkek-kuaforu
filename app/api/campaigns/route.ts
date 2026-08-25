@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
@@ -14,6 +15,16 @@ const campaignSchema = z.object({
   showOnHome: z.boolean().optional().default(true),
   isActive: z.boolean().optional().default(true),
 });
+
+/**
+ * Kampanya değişikliği ana sayfayı etkiler (FAZ 3 · Sıra 3.1).
+ *
+ * `/` build zamanında statik üretiliyor; bu çağrı olmadan yeni kampanya
+ * bir sonraki deploy'a kadar görünmüyordu.
+ */
+function anaSayfayiYenile() {
+  revalidatePath("/");
+}
 
 export async function GET() {
   const campaigns = await db.campaign.findMany({ orderBy: [{ priority: "asc" }, { createdAt: "desc" }] });
@@ -32,5 +43,6 @@ export async function POST(req: NextRequest) {
   const campaign = await db.campaign.create({
     data: { ...rest, startDate: new Date(startDate), endDate: new Date(endDate) },
   });
+  anaSayfayiYenile();
   return Response.json({ campaign }, { status: 201 });
 }

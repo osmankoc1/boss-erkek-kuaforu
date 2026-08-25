@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
@@ -15,6 +16,16 @@ const patchSchema = z.object({
   showOnHome: z.boolean().optional(),
 });
 
+/**
+ * Kampanya değişikliği ana sayfayı etkiler (FAZ 3 · Sıra 3.1).
+ *
+ * `/` build zamanında statik üretiliyor; bu çağrı olmadan yeni kampanya
+ * bir sonraki deploy'a kadar görünmüyordu.
+ */
+function anaSayfayiYenile() {
+  revalidatePath("/");
+}
+
 export async function PATCH(req: NextRequest, ctx: RouteContext<"/api/campaigns/[id]">) {
   const session = await getSession();
   if (!session?.userId) return Response.json({ error: "Yetkisiz." }, { status: 401 });
@@ -30,6 +41,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext<"/api/campaigns/
   if (endDate) data.endDate = new Date(endDate);
 
   const campaign = await db.campaign.update({ where: { id }, data });
+  anaSayfayiYenile();
   return Response.json({ campaign });
 }
 
@@ -38,5 +50,6 @@ export async function DELETE(_req: NextRequest, ctx: RouteContext<"/api/campaign
   if (!session?.userId) return Response.json({ error: "Yetkisiz." }, { status: 401 });
   const { id } = await ctx.params;
   await db.campaign.delete({ where: { id } });
+  anaSayfayiYenile();
   return Response.json({ ok: true });
 }

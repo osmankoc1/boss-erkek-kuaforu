@@ -1,8 +1,22 @@
 import type { NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { serializeMoney } from "@/lib/money";
 import { getSession } from "@/lib/session";
 import { barberUpdateSchema, firstIssueMessage } from "@/lib/admin-schemas";
+
+/**
+ * Çalışan değişikliği public sayfaları etkiler (FAZ 3 · Sıra 3.1).
+ *
+ * `/ekibimiz` ve `/` build zamanında statik üretiliyor; bu çağrı olmadan
+ * yeni/güncellenen çalışan sitede görünmüyordu. `/randevu` da berber
+ * listesini kullandığı için birlikte yenilenir.
+ */
+function calisanSayfalariniYenile() {
+  revalidatePath("/ekibimiz");
+  revalidatePath("/");
+  revalidatePath("/randevu");
+}
 
 export async function PATCH(req: NextRequest, ctx: RouteContext<"/api/barbers/[id]">) {
   const session = await getSession();
@@ -24,5 +38,6 @@ export async function PATCH(req: NextRequest, ctx: RouteContext<"/api/barbers/[i
 
   // Yalnızca doğrulanmış alanlar yazılır; `id` ve `createdAt` değiştirilemez.
   const barber = await db.barber.update({ where: { id }, data: parsed.data });
+  calisanSayfalariniYenile();
   return Response.json({ barber: serializeMoney(barber, ["commissionRate"]) });
 }
