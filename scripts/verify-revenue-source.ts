@@ -21,6 +21,7 @@ import ws from "ws";
 import { assertWritableTestDatabase } from "../lib/db-guard";
 import { SignJWT } from "jose";
 import { istanbulDateString, startOfIstanbulDay } from "../lib/tz";
+import { temizleAuditIzleri } from "./audit-temizlik";
 
 neonConfig.webSocketConstructor = ws;
 
@@ -77,6 +78,8 @@ async function cleanup() {
   );
   const ids = custs.map((c) => c.id);
   const saleIds = (await db.sale.findMany({ where: { OR: [{ customerId: { in: ids } }, { note: MARK }] }, select: { id: true } })).map((s) => s.id);
+
+
   const n = { satis: 0, kalem: 0, randevu: 0, musteri: 0 };
   if (saleIds.length) {
     await db.customerPayment.deleteMany({ where: { saleId: { in: saleIds } } });
@@ -87,6 +90,10 @@ async function cleanup() {
     n.randevu = (await db.appointment.deleteMany({ where: { customerId: { in: ids } } })).count;
     n.musteri = (await db.customer.deleteMany({ where: { id: { in: ids } } })).count;
   }
+
+  // Denetim izi (FAZ 2 - Sira 10b): entity'si silinen satirlar da
+  // temizlenir; aksi halde dev veritabaninda birikir.
+  await temizleAuditIzleri(db);
   return n;
 }
 

@@ -146,7 +146,12 @@ function main() {
     const korumasizYazanlar: string[] = [];
     for (const f of scriptler) {
       const src = readFileSync(`scripts/${f}`, "utf8");
-      if (!/PrismaClient/.test(src)) continue;
+      // Koruma, BAGLANTI ACAN script'ler icindir. Yalnizca tip olarak
+      // PrismaClient import eden ve `db`yi disaridan alan yardimci modüller
+      // (or. audit-temizlik.ts) kendi hedeflerini secmez; onlari cagiran
+      // script zaten korumalidir.
+      const baglantiAciyor = /new PrismaClient\s*\(/.test(src);
+      if (!baglantiAciyor) continue;
       if (!yazanDesen.test(src)) continue;
       if (!/assertWritableTestDatabase\(\)/.test(src)) korumasizYazanlar.push(f);
     }

@@ -1,4 +1,6 @@
 import { NextRequest } from "next/server";
+import { writeAudit } from "@/lib/audit";
+import { adminActor } from "@/lib/audit-actor";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
@@ -29,6 +31,8 @@ export async function POST(req: NextRequest) {
   if (!secondary) return Response.json({ error: "Birleştirilecek müşteri bulunamadı." }, { status: 404 });
   if (secondary.mergedIntoCustomerId) return Response.json({ error: "Bu müşteri zaten birleştirilmiş." }, { status: 400 });
 
+  const actor = await adminActor();
+
   try {
     await db.$transaction(async (tx) => {
       await tx.sale.updateMany({ where: { customerId: secondaryId }, data: { customerId: primaryId } });
@@ -46,6 +50,21 @@ export async function POST(req: NextRequest) {
       // kayitlardan yeniden hesaplanir (FAZ 2 · Sira 7). Onceden randevular
       // tasiniyor ama sayaclar oldugu yerde kaliyordu.
       await recalculateManyCustomerCounters(tx, [primaryId, secondaryId]);
+
+      // Denetim izi -- ayni transaction (FAZ 2 · Sira 10b). Birlestirme geri
+      // alinamayan bir islem; kimin yaptigi ve hangi kaydin hangisine
+      // baglandigi kayit altina alinir.
+      await writeAudit(tx, {
+        entity: "Customer",
+        entityId: secondaryId,
+        action: "MERGE",
+        actor,
+        changes: {
+          mergedIntoCustomerId: { before: null, after: primaryId },
+          fullName: { before: secondary.fullName, after: secondary.fullName },
+          phone: { before: secondary.phone, after: `__merged_${secondaryId}_${secondary.phone}` },
+        },
+      });
     });
   } catch (error) {
     // Yukaridaki varlik kontrolu ile bu transaction arasinda kayit silinmis

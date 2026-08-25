@@ -1,4 +1,6 @@
 import { NextRequest } from "next/server";
+import { createdFields, writeAudit } from "@/lib/audit";
+import { adminActor } from "@/lib/audit-actor";
 import { moneyAmount } from "@/lib/money-schema";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -39,13 +41,27 @@ export async function POST(req: NextRequest) {
   const parsed = schema.safeParse(body);
   if (!parsed.success) return Response.json({ error: "Geçersiz veri." }, { status: 400 });
 
-  const expense = await db.expense.create({
-    data: {
-      amount: parsed.data.amount,
-      category: parsed.data.category,
-      description: parsed.data.description ?? null,
-      expenseDate: parsed.data.expenseDate ? new Date(parsed.data.expenseDate) : new Date(),
-    },
+  const actor = await adminActor();
+
+  // Denetim izi ana islemle ayni transaction'da olmali (FAZ 2 · Sira 10b);
+  // bu yuzden tek yazim da transaction'a alindi.
+  const expense = await db.$transaction(async (tx) => {
+    const olusan = await tx.expense.create({
+      data: {
+        amount: parsed.data.amount,
+        category: parsed.data.category,
+        description: parsed.data.description ?? null,
+        expenseDate: parsed.data.expenseDate ? new Date(parsed.data.expenseDate) : new Date(),
+      },
+    });
+    await writeAudit(tx, {
+      entity: "Expense",
+      entityId: olusan.id,
+      action: "CREATE",
+      actor,
+      changes: createdFields("Expense", olusan),
+    });
+    return olusan;
   });
 
   return Response.json({ expense: serializeMoney(expense, ["amount"]) }, { status: 201 });

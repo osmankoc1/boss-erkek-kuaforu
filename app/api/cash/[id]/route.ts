@@ -1,4 +1,6 @@
 import { NextRequest } from "next/server";
+import { createdFields, diffFields, writeAudit } from "@/lib/audit";
+import { adminActor } from "@/lib/audit-actor";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
@@ -61,8 +63,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // Σ(odeme defteri) == sale.paidAmount degismezi korunur (FAZ 2 · Sira 3).
   const fark = round2(paidAmount.minus(existing.paidAmount));
 
-  const [sale] = await db.$transaction([
-    db.sale.update({
+  const actor = await adminActor();
+
+  const sale = await db.$transaction(async (tx) => {
+    const guncel = await tx.sale.update({
       where: { id },
       data: {
         saleAmount,
@@ -74,21 +78,36 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         paymentMethod: parsed.data.paymentMethod ?? existing.paymentMethod,
         note: parsed.data.note !== undefined ? parsed.data.note : existing.note,
       },
-    }),
-    ...(!fark.isZero()
-      ? [
-          db.customerPayment.create({
-            data: {
-              customerId: existing.customerId,
-              saleId: id,
-              amount: fark,
-              paymentMethod: parsed.data.paymentMethod ?? existing.paymentMethod,
-              note: "Satış düzenlemesi (tutar farkı)",
-            },
-          }),
-        ]
-      : []),
-  ]);
+    });
+
+    if (!fark.isZero()) {
+      const duzeltme = await tx.customerPayment.create({
+        data: {
+          customerId: existing.customerId,
+          saleId: id,
+          amount: fark,
+          paymentMethod: parsed.data.paymentMethod ?? existing.paymentMethod,
+          note: "Satış düzenlemesi (tutar farkı)",
+        },
+      });
+      await writeAudit(tx, {
+        entity: "CustomerPayment",
+        entityId: duzeltme.id,
+        action: "CREATE",
+        actor,
+        changes: createdFields("CustomerPayment", duzeltme),
+      });
+    }
+
+    // Denetim izi ANA ISLEMLE AYNI transaction'da (FAZ 2 · Sira 10b).
+    // Yalnizca DEGISEN alanlar yazilir; yazilamazsa duzenleme de geri alinir.
+    const changes = diffFields("Sale", existing, guncel);
+    if (changes) {
+      await writeAudit(tx, { entity: "Sale", entityId: id, action: "UPDATE", actor, changes });
+    }
+
+    return guncel;
+  });
 
   return Response.json({ sale: serializeSale(sale) });
 }

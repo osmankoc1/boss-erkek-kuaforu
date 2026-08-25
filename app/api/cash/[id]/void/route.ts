@@ -1,4 +1,6 @@
 import { NextRequest } from "next/server";
+import { writeAudit } from "@/lib/audit";
+import { adminActor } from "@/lib/audit-actor";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
@@ -46,6 +48,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const voidedAt = new Date();
   const voidReason = parsed.success ? (parsed.data.voidReason ?? null) : null;
 
+  const actor = await adminActor();
+
   const sale = await db.$transaction(async (tx) => {
     const updated = await tx.sale.update({
       where: { id },
@@ -54,10 +58,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     // 1) Randevu durumu geri alınır.
     if (existing.appointmentId) {
-      await tx.appointment.updateMany({
+      const geri = await tx.appointment.updateMany({
         where: { id: existing.appointmentId, status: "completed" },
         data: { status: "confirmed" },
       });
+      // Yalnizca gercekten geri alindiysa kaydedilir.
+      if (geri.count > 0) {
+        await writeAudit(tx, {
+          entity: "Appointment",
+          entityId: existing.appointmentId,
+          action: "STATUS_CHANGE",
+          actor,
+          changes: { status: { before: "completed", after: "confirmed" } },
+        });
+      }
     }
 
     // 2 + 3) Sayaclar ve son ziyaret gercek kayitlardan yeniden hesaplanir.
@@ -105,6 +119,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         },
       });
     }
+
+    // Denetim izi — ayni transaction (FAZ 2 · Sira 10b).
+    await writeAudit(tx, {
+      entity: "Sale",
+      entityId: id,
+      action: "VOID",
+      actor,
+      changes: {
+        saleStatus: { before: existing.saleStatus, after: "VOIDED" },
+        voidReason: { before: null, after: voidReason ?? null },
+        saleAmount: { before: String(existing.saleAmount), after: String(existing.saleAmount) },
+      },
+    });
 
     return updated;
   });

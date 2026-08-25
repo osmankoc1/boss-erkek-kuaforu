@@ -14,6 +14,7 @@ import { neonConfig } from "@neondatabase/serverless";
 import ws from "ws";
 import { assertWritableTestDatabase } from "../lib/db-guard";
 import { SignJWT } from "jose";
+import { temizleAuditIzleri } from "./audit-temizlik";
 
 neonConfig.webSocketConstructor = ws;
 
@@ -197,6 +198,11 @@ async function main() {
     }
   } finally {
     console.log("\nTEMIZLIK...");
+    // Denetim izi (FAZ 2 - Sira 10b): entity'si silinen satirlar da
+    // temizlenir; aksi halde dev veritabaninda birikir.
+    // Ayar anahtarlari silinmedigi icin oksuz supurme onlari yakalayamaz;
+    // bu paketin dokundugu anahtarlar acikca verilir.
+    await temizleAuditIzleri(db, KNOWN);
     const created = await db.setting.findMany({ select: { key: true } });
     const toDelete = created.map((r) => r.key).filter((k) => !backup.has(k));
     if (toDelete.length) await db.setting.deleteMany({ where: { key: { in: toDelete } } });

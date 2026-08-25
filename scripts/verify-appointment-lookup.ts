@@ -15,6 +15,7 @@ import ws from "ws";
 import { assertWritableTestDatabase } from "../lib/db-guard";
 import { SignJWT } from "jose";
 import { displayAppointmentCode } from "../lib/appointment-code";
+import { temizleAuditIzleri } from "./audit-temizlik";
 
 neonConfig.webSocketConstructor = ws;
 
@@ -212,6 +213,9 @@ async function main() {
     );
   } finally {
     console.log("\nTEMIZLIK...");
+    // Denetim izi (FAZ 2 - Sira 10b): entity'si silinen satirlar da
+    // temizlenir; aksi halde dev veritabaninda birikir.
+    await temizleAuditIzleri(db);
     const appts = await db.appointment.findMany({ where: { notes: TEST_TAG }, select: { id: true } });
     const ids = appts.map((a) => a.id);
     await db.appointmentService.deleteMany({ where: { appointmentId: { in: ids } } });

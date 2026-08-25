@@ -1,4 +1,6 @@
 import { NextRequest } from "next/server";
+import { createdFields, writeAudit } from "@/lib/audit";
+import { adminActor } from "@/lib/audit-actor";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
@@ -45,6 +47,8 @@ export async function POST(req: NextRequest) {
   // lock altında yapılır. Kilitsiz hâlde satış "oku → hesapla → yaz" arasında
   // ikinci bir istek araya giriyor ve ödeme defteri ile sale.paidAmount
   // birbirinden kopuyordu (FAZ 2 · Sıra 6).
+  const actor = await adminActor();
+
   const outcome = await calistir().catch(async (e) => {
     // Advisory lock ayni satis icin yarisi zaten serilestirir; bu yakalama
     // farkli satislara ayni anahtarla gelen es zamanli istekler icindir.
@@ -120,6 +124,14 @@ export async function POST(req: NextRequest) {
           remainingAmount: yeniKalan,
           saleStatus: calcStatus(yeniOdenen, sale.saleAmount),
         },
+      });
+
+      await writeAudit(tx, {
+        entity: "CustomerPayment",
+        entityId: payment.id,
+        action: "CREATE",
+        actor,
+        changes: createdFields("CustomerPayment", payment),
       });
 
       return { kind: "created" as const, payment, sale: updatedSale };

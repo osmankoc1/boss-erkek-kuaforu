@@ -278,3 +278,50 @@ model Expense {
   expenseDate DateTime @default(now())
   createdAt   DateTime @default(now())
 }
+
+/// Merkezi denetim izi (FAZ 2 - Sira 10b).
+///
+/// "Kim neyi neye cevirdi" sorusunun tek cevap yeri. Model basina
+/// `createdByUserId` alanlari bilinçli olarak SECILMEDI: onlar yalnizca son
+/// degistireni tutar, ONCEKI DEGERI tutmaz.
+///
+/// Kurallar:
+///   * Audit satiri ana islemle AYNI transaction'da yazilir; yazilamazsa ana
+///     islem de commit edilmez.
+///   * `changes` yalnizca DEGISEN alanlarin before/after degerini tutar;
+///     komple satir snapshot'i saklanmaz.
+///   * Alan secimi fail-closed whitelist ile yapilir (bkz. lib/audit.ts);
+///     listede olmayan hicbir alan buraya giremez.
+///   * Saklama suresi sinirsiz; otomatik silme yoktur.
+///   * Gecmis veriye backfill yapilmaz.
+model AuditLog {
+  id       String @id @default(cuid())
+  /// "Sale" | "CustomerPayment" | "BarberPayout" | "Expense" | "Customer" | "Appointment" | "Setting"
+  entity   String
+  entityId String
+  /// "CREATE" | "UPDATE" | "VOID" | "DELETE" | "MERGE" | "STATUS_CHANGE"
+  action   String
+
+  /// Islemin kaynagi: "ADMIN" | "PUBLIC" | "SYSTEM".
+  ///
+  /// Ayri bir alan olmasi bilinçli: kaynak bilgisini `userEmail` icine
+  /// sentinel metin olarak gommek, o alani hem kimlik hem etiket yapardi.
+  source String
+
+  /// Aktor -- yalnizca ADMIN kaynakli islemlerde dolu.
+  ///
+  /// `User` modeline FK YOKTUR: saklama suresi sinirsiz oldugu icin kullanici
+  /// silinse bile denetim izi ayakta kalmalidir. E-posta o anki haliyle
+  /// snapshot'lanir (ayni ilke Sale.barberName'de de uygulaniyor).
+  userId    String?
+  userEmail String?
+
+  /// { "saleAmount": { "before": 1000, "after": 700 } }
+  changes   Json?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([entity, entityId, createdAt])
+  @@index([entity, action, createdAt])
+  @@index([source, createdAt])
+}

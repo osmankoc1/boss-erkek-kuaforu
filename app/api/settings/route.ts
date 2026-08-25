@@ -1,4 +1,6 @@
 import { NextRequest } from "next/server";
+import { writeAudit } from "@/lib/audit";
+import { adminActor } from "@/lib/audit-actor";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
@@ -49,11 +51,35 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "Güncellenecek geçerli bir ayar alanı yok." }, { status: 400 });
   }
 
-  await Promise.all(
-    entries.map(([key, value]) =>
-      db.setting.upsert({ where: { key }, update: { value }, create: { key, value } })
-    )
-  );
+  const actor = await adminActor();
+
+  // Onceden `Promise.all` ile ayri ayri yaziliyordu; artik TEK TRANSACTION
+  // (FAZ 2 · Sira 10b). Denetim izi ana islemle ayni transaction'da olmali.
+  //
+  // Onceki degerler ayni transaction icinde okunur ki `changes` gercek
+  // before/after gostersin.
+  await db.$transaction(async (tx) => {
+    const oncekiler = await tx.setting.findMany({
+      where: { key: { in: entries.map(([k]) => k) } },
+      select: { key: true, value: true },
+    });
+    const oncekiMap = new Map(oncekiler.map((o) => [o.key, o.value]));
+
+    for (const [key, value] of entries) {
+      const onceki = oncekiMap.get(key) ?? null;
+      await tx.setting.upsert({ where: { key }, update: { value }, create: { key, value } });
+
+      // Degeri degismeyen ayar icin kayit yazilmaz -- gurultu olurdu.
+      if (onceki === value) continue;
+      await writeAudit(tx, {
+        entity: "Setting",
+        entityId: key,
+        action: onceki === null ? "CREATE" : "UPDATE",
+        actor,
+        changes: { value: { before: onceki, after: value } },
+      });
+    }
+  });
 
   revalidatePath("/");
   revalidatePath("/iletisim");

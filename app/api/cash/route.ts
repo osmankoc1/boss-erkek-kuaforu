@@ -1,4 +1,6 @@
 import { NextRequest } from "next/server";
+import { createdFields, isAuditableStatusChange, writeAudit } from "@/lib/audit";
+import { adminActor } from "@/lib/audit-actor";
 import { moneyAmount } from "@/lib/money-schema";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -160,6 +162,8 @@ export async function POST(req: NextRequest) {
     // satışın void edilip yeniden girilmesine izin veriyor (bkz. Kullanım
     // Rehberi — "Yanlış fiyat girildiyse: Void edin, tekrar doğru tutar ile
     // girin").
+    const actor = await adminActor();
+
     const outcome = await db.$transaction(async (tx) => {
       await acquireAdvisoryLock(tx, SALE_APPOINTMENT_LOCK, appointmentId);
 
@@ -201,7 +205,7 @@ export async function POST(req: NextRequest) {
       // Tahsilat raporlari bu defterden okunur; satis aninda alinan para da
       // bir tahsilat olayidir ve satisin gunune yazilir.
       if (data.paidAmount > 0) {
-        await tx.customerPayment.create({
+        const pesin = await tx.customerPayment.create({
           data: {
             customerId: appointment.customerId,
             saleId: sale.id,
@@ -211,7 +215,33 @@ export async function POST(req: NextRequest) {
             note: "Satış anında tahsilat",
           },
         });
+        await writeAudit(tx, {
+          entity: "CustomerPayment",
+          entityId: pesin.id,
+          action: "CREATE",
+          actor,
+          changes: createdFields("CustomerPayment", pesin),
+        });
       }
+
+      // Randevu 'completed'a cekildi -- isletme acisindan onemli bir gecis.
+      if (isAuditableStatusChange(appointment.status, "completed")) {
+        await writeAudit(tx, {
+          entity: "Appointment",
+          entityId: appointmentId,
+          action: "STATUS_CHANGE",
+          actor,
+          changes: { status: { before: appointment.status, after: "completed" } },
+        });
+      }
+
+      await writeAudit(tx, {
+        entity: "Sale",
+        entityId: sale.id,
+        action: "CREATE",
+        actor,
+        changes: createdFields("Sale", sale),
+      });
 
       return { kind: "created" as const, sale };
     }, { maxWait: 5_000, timeout: 15_000 });
@@ -243,25 +273,52 @@ export async function POST(req: NextRequest) {
     return Response.json({ sale: serializeSale(outcome.sale) }, { status: 201 });
   }
 
-  const sale = await db.sale.create({ data: saleData, include: { items: true } });
+  // WALK-IN yolu artik TEK TRANSACTION icinde (FAZ 2 · Sira 10b).
+  //
+  // Onceden satis, odeme defteri satiri ve sayac guncellemesi ayri ayri
+  // yaziliyordu: odeme satiri yazilamazsa satis "paidAmount > 0" ile ortada
+  // kaliyor ve Σ(defter) = paidAmount degismezi bozuluyordu. Denetim izinin
+  // ana islemle ayni transaction'da olmasi zorunlulugu bu bosluğu da kapatti.
+  const walkInActor = await adminActor();
 
-  // Pesin tahsilat odeme defterine yazilir (FAZ 2 · Sira 3).
-  if (data.paidAmount > 0) {
-    await db.customerPayment.create({
-      data: {
-        customerId: resolvedCustomerId,
-        saleId: sale.id,
-        amount: data.paidAmount,
-        paymentMethod: data.paymentMethod,
-        paymentDate: saleDate,
-        note: "Satış anında tahsilat",
-      },
+  const sale = await db.$transaction(async (tx) => {
+    const olusan = await tx.sale.create({ data: saleData, include: { items: true } });
+
+    // Pesin tahsilat odeme defterine yazilir (FAZ 2 · Sira 3).
+    if (data.paidAmount > 0) {
+      const pesin = await tx.customerPayment.create({
+        data: {
+          customerId: resolvedCustomerId,
+          saleId: olusan.id,
+          amount: data.paidAmount,
+          paymentMethod: data.paymentMethod,
+          paymentDate: saleDate,
+          note: "Satış anında tahsilat",
+        },
+      });
+      await writeAudit(tx, {
+        entity: "CustomerPayment",
+        entityId: pesin.id,
+        action: "CREATE",
+        actor: walkInActor,
+        changes: createdFields("CustomerPayment", pesin),
+      });
+    }
+
+    if (resolvedCustomerId) {
+      await recalculateCustomerCounters(tx, resolvedCustomerId);
+    }
+
+    await writeAudit(tx, {
+      entity: "Sale",
+      entityId: olusan.id,
+      action: "CREATE",
+      actor: walkInActor,
+      changes: createdFields("Sale", olusan),
     });
-  }
 
-  if (resolvedCustomerId) {
-    await recalculateCustomerCounters(db, resolvedCustomerId);
-  }
+    return olusan;
+  }, { maxWait: 5_000, timeout: 15_000 });
 
   return Response.json({ sale: serializeSale(sale) }, { status: 201 });
 }

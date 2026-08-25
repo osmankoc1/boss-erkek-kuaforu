@@ -27,6 +27,7 @@ import ws from "ws";
 import { assertWritableTestDatabase } from "../lib/db-guard";
 import { SignJWT } from "jose";
 import { istanbulDateString } from "../lib/tz";
+import { temizleAuditIzleri } from "./audit-temizlik";
 
 /** Prisma artik para alanlarini Decimal doner; testte sayiya cevrilir (Sira 9a). */
 const num = (v: unknown): number => (v === null || v === undefined ? 0 : Number(v));
@@ -86,6 +87,8 @@ async function cleanup() {
       select: { id: true },
     })
   ).map((s) => s.id);
+
+
   const n = { hakedis: 0, odeme: 0, satis: 0, randevu: 0, musteri: 0, berber: 0 };
   if (barberIds.length) {
     n.hakedis = (await db.barberPayout.deleteMany({ where: { barberId: { in: barberIds } } })).count;
@@ -105,6 +108,10 @@ async function cleanup() {
     await db.workingHour.deleteMany({ where: { barberId: { in: barberIds } } });
     n.berber = (await db.barber.deleteMany({ where: { id: { in: barberIds } } })).count;
   }
+
+  // Denetim izi (FAZ 2 - Sira 10b): entity'si silinen satirlar da
+  // temizlenir; aksi halde dev veritabaninda birikir.
+  await temizleAuditIzleri(db);
   return n;
 }
 

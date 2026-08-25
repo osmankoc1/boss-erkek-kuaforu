@@ -1,4 +1,6 @@
 import type { NextRequest } from "next/server";
+import { isAuditableStatusChange, writeAudit, PUBLIC_ACTOR } from "@/lib/audit";
+import { adminActor } from "@/lib/audit-actor";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
@@ -112,6 +114,11 @@ export async function PATCH(req: NextRequest, ctx: RouteContext<"/api/appointmen
   // Koşullu update: yalnızca durum hâlâ okuduğumuz değerdeyse yazar. Aynı anda
   // gelen ikinci bir istek 0 satır günceller ve hiçbir yan etki üretmez —
   // sayaçlar bir kez değişir, e-posta bir kez gider.
+  // Kaynak ayrimi: admin oturumu varsa ADMIN, yoksa musterinin kendi
+  // islemidir (public iptal akisi). Sentinel metin yerine AYRI bir `source`
+  // alani kullanilir.
+  const actor = isAdmin ? await adminActor() : PUBLIC_ACTOR;
+
   const result = await db.$transaction(async (tx) => {
     const updated = await tx.appointment.updateMany({
       where: { id, status: appt.status },
@@ -124,6 +131,19 @@ export async function PATCH(req: NextRequest, ctx: RouteContext<"/api/appointmen
     // istegin gecisi uygulamasini engelliyor; recompute ayrica sayacin
     // cift degismesini imkansiz kiliyor.
     await recalculateCustomerCounters(tx, appt.customerId);
+
+    // Denetim izi -- yalnizca ISLETME ACISINDAN ONEMLI gecisler
+    // (FAZ 2 · Sira 10b). `pending_verification -> pending` gibi rutin
+    // dogrulama hareketleri kaydedilmez: hacimli ve dusuk degerli.
+    if (isAuditableStatusChange(appt.status, status)) {
+      await writeAudit(tx, {
+        entity: "Appointment",
+        entityId: id,
+        action: "STATUS_CHANGE",
+        actor,
+        changes: { status: { before: appt.status, after: status } },
+      });
+    }
 
     return { applied: true as const };
   });

@@ -1,4 +1,6 @@
 import { NextRequest } from "next/server";
+import { createdFields, writeAudit } from "@/lib/audit";
+import { adminActor } from "@/lib/audit-actor";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
@@ -91,6 +93,8 @@ export async function POST(req: NextRequest) {
   // Kontrol ve yazma TEK transaction içinde, berber bazlı advisory lock
   // altında. Kilitsiz hâlde iki eşzamanlı istek aynı kalanı okuyup ikisi de
   // geçerli sayılır ve kalan negatife düşerdi.
+  const actor = await adminActor();
+
   const outcome = await calistir().catch(async (e) => {
     // Advisory lock ayni berber icin yarisi serilestirir; bu yakalama farkli
     // berberlere ayni anahtarla gelen es zamanli istekler icindir. Son sozu
@@ -166,6 +170,14 @@ export async function POST(req: NextRequest) {
           // devreye girer. Geçmişe ödeme tarihi girilemez; geçmiş dönem
           // periodStart/periodEnd ile ifade edilir.
         },
+      });
+
+      await writeAudit(tx, {
+        entity: "BarberPayout",
+        entityId: payout.id,
+        action: "CREATE",
+        actor,
+        changes: createdFields("BarberPayout", payout),
       });
 
       return {

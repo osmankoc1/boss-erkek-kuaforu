@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { SYSTEM_ACTOR, writeAudit } from "@/lib/audit";
 import { db } from "@/lib/db";
 import { verifyCronAuth } from "@/lib/cron-auth";
 import { recalculateManyCustomerCounters } from "@/lib/customer-counters";
@@ -40,6 +41,19 @@ export async function GET(req: NextRequest) {
       )
     );
     await recalculateManyCustomerCounters(tx, expired.map((a) => a.customerId));
+
+    // Denetim izi -- kaynak SYSTEM (FAZ 2 · Sira 10b). Iptal isletme
+    // acisindan onemli bir gecistir; kimin yaptigi sorusunun cevabi
+    // "zamanlanmis is"tir ve bu ayri bir `source` degeriyle belirtilir.
+    for (const a of expired) {
+      await writeAudit(tx, {
+        entity: "Appointment",
+        entityId: a.id,
+        action: "STATUS_CHANGE",
+        actor: SYSTEM_ACTOR,
+        changes: { status: { before: "pending_verification", after: "cancelled" } },
+      });
+    }
   }, { maxWait: 10_000, timeout: 30_000 });
 
   return Response.json({ cancelled: expired.length });

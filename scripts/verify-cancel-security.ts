@@ -14,6 +14,7 @@ import { neonConfig } from "@neondatabase/serverless";
 import ws from "ws";
 import { assertWritableTestDatabase } from "../lib/db-guard";
 import { SignJWT } from "jose";
+import { temizleAuditIzleri } from "./audit-temizlik";
 
 neonConfig.webSocketConstructor = ws;
 
@@ -269,6 +270,9 @@ async function main() {
     }
   } finally {
     console.log("\nTEMIZLIK...");
+    // Denetim izi (FAZ 2 - Sira 10b): entity'si silinen satirlar da
+    // temizlenir; aksi halde dev veritabaninda birikir.
+    await temizleAuditIzleri(db);
     const appts = await db.appointment.findMany({
       where: { OR: [{ notes: TEST_TAG }, { customer: { phone: { startsWith: PHONE_PREFIX } } }] },
       select: { id: true },

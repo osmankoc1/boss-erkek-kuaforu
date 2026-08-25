@@ -31,6 +31,7 @@ import { istanbulDateString } from "../lib/tz";
 import { round2, sum, toNumber, hasValidMoneyScale } from "../lib/money";
 import { calcShares, calcStatus } from "../lib/sale";
 import { summarizeRevenue } from "../lib/revenue";
+import { temizleAuditIzleri } from "./audit-temizlik";
 
 neonConfig.webSocketConstructor = ws;
 
@@ -100,6 +101,8 @@ async function cleanup() {
       select: { id: true },
     })
   ).map((s) => s.id);
+
+
   const say = { hakedis: 0, odeme: 0, satis: 0, musteri: 0, berber: 0, gider: 0 };
   if (barberIds.length) {
     say.hakedis = (await db.barberPayout.deleteMany({ where: { barberId: { in: barberIds } } })).count;
@@ -119,6 +122,10 @@ async function cleanup() {
     say.berber = (await db.barber.deleteMany({ where: { id: { in: barberIds } } })).count;
   }
   say.gider = (await db.expense.deleteMany({ where: { category: MARK } })).count;
+
+  // Denetim izi (FAZ 2 - Sira 10b): entity'si silinen satirlar da
+  // temizlenir; aksi halde dev veritabaninda birikir.
+  await temizleAuditIzleri(db);
   return say;
 }
 

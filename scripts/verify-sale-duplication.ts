@@ -14,6 +14,7 @@ import { neonConfig } from "@neondatabase/serverless";
 import ws from "ws";
 import { assertWritableTestDatabase } from "../lib/db-guard";
 import { SignJWT } from "jose";
+import { temizleAuditIzleri } from "./audit-temizlik";
 
 /** Prisma artik para alanlarini Decimal doner; testte sayiya cevrilir (Sira 9a). */
 const n = (v: unknown): number => (v === null || v === undefined ? 0 : Number(v));
@@ -226,6 +227,9 @@ async function main() {
     check("Oturumsuz kasa kaydi -> 401", unauth.status === 401, `gelen ${unauth.status}`);
   } finally {
     console.log("\nTEMIZLIK...");
+    // Denetim izi (FAZ 2 - Sira 10b): entity'si silinen satirlar da
+    // temizlenir; aksi halde dev veritabaninda birikir.
+    await temizleAuditIzleri(db);
     const sales = await db.sale.findMany({
       where: { OR: [{ note: TEST_TAG }, { customerName: { contains: TEST_TAG } }, { appointment: { notes: TEST_TAG } }] },
       select: { id: true },
