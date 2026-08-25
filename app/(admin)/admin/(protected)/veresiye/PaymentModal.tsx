@@ -18,6 +18,17 @@ export default function PaymentModal({ saleId, customerId, customerName, remaini
   const [amount, setAmount] = useState(remainingAmount);
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [note, setNote] = useState("");
+
+  /**
+   * Idempotency anahtari — modal ACILDIGINDA bir kez uretilir, her tiklamada
+   * degil. Cift tiklama ayni anahtari gonderir ve sunucu tek kayit olusturur;
+   * kullanici modali kapatip yeniden actiginda yeni anahtar uretilir ve
+   * gercek ikinci bir odeme serbestce girilebilir (FAZ 2 · Sira 9b).
+   *
+   * `useState(() => ...)` bilerek kullanildi: deger ilk render'da bir kez
+   * hesaplanir ve sonraki render'larda degismez.
+   */
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -29,7 +40,7 @@ export default function PaymentModal({ saleId, customerId, customerName, remaini
       const res = await fetch("/api/debts/payment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ saleId, customerId, amount, paymentMethod, note: note || null }),
+        body: JSON.stringify({ saleId, customerId, amount, paymentMethod, note: note || null, idempotencyKey }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? "Hata oluştu."); return; }

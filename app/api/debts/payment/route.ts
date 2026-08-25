@@ -6,6 +6,7 @@ import { calcStatus } from "@/lib/sale";
 import { acquireAdvisoryLock, SALE_PAYMENT_LOCK } from "@/lib/advisory-lock";
 import { money, round2, toNumber, serializeMoney, serializeSale } from "@/lib/money";
 import { moneyAmount } from "@/lib/money-schema";
+import { idempotencyKeySchema, isIdempotencyConflict, normalizeKey } from "@/lib/idempotency";
 
 const schema = z.object({
   saleId: z.string().min(1),
@@ -13,6 +14,7 @@ const schema = z.object({
   amount: moneyAmount.positive(),
   paymentMethod: z.enum(["CASH", "CARD", "TRANSFER", "OTHER"]).default("CASH"),
   note: z.string().optional().nullable(),
+  idempotencyKey: idempotencyKeySchema,
 });
 
 /**
@@ -36,15 +38,38 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) return Response.json({ error: "Geçersiz veri." }, { status: 400 });
 
   const { saleId, amount, paymentMethod, note } = parsed.data;
+  const idempotencyKey = normalizeKey(parsed.data.idempotencyKey);
   const customerId = parsed.data.customerId ?? null;
 
   // Tüm kontrol ve yazma işlemi TEK transaction içinde, satış bazlı advisory
   // lock altında yapılır. Kilitsiz hâlde satış "oku → hesapla → yaz" arasında
   // ikinci bir istek araya giriyor ve ödeme defteri ile sale.paidAmount
   // birbirinden kopuyordu (FAZ 2 · Sıra 6).
-  const outcome = await db.$transaction(
+  const outcome = await calistir().catch(async (e) => {
+    // Advisory lock ayni satis icin yarisi zaten serilestirir; bu yakalama
+    // farkli satislara ayni anahtarla gelen es zamanli istekler icindir.
+    // Unique index son sozu soyler, kod ona guvenir.
+    if (!isIdempotencyConflict(e) || !idempotencyKey) throw e;
+    const payment = await db.customerPayment.findUnique({ where: { idempotencyKey } });
+    if (!payment) throw e;
+    const sale = payment.saleId ? await db.sale.findUnique({ where: { id: payment.saleId } }) : null;
+    return { kind: "replay" as const, payment, sale };
+  });
+
+  function calistir() {
+    return db.$transaction(
     async (tx) => {
       await acquireAdvisoryLock(tx, SALE_PAYMENT_LOCK, saleId);
+
+      // Ayni anahtarla kayit zaten varsa istek TEKRARIDIR: yeni bir tahsilat
+      // yazilmaz, var olan kayit geri dondurulur (FAZ 2 · Sira 9b).
+      if (idempotencyKey) {
+        const varOlan = await tx.customerPayment.findUnique({ where: { idempotencyKey } });
+        if (varOlan) {
+          const iliskiliSatis = await tx.sale.findUnique({ where: { id: varOlan.saleId ?? saleId } });
+          return { kind: "replay" as const, payment: varOlan, sale: iliskiliSatis };
+        }
+      }
 
       const sale = await tx.sale.findUnique({ where: { id: saleId } });
       if (!sale) return { kind: "not_found" as const };
@@ -63,8 +88,13 @@ export async function POST(req: NextRequest) {
       }
 
       // Mükerrer istek koruması — kilit altında okunur, yarışa açık değildir.
+      //
+      // Istemci ACIK BIR ANAHTAR gonderdiyse bu sezgisel atlanir: anahtar
+      // "bu istek sudur" demenin kesin yoludur ve tekrar kontrolu zaten
+      // yukarida yapildi. Pencereyi burada da uygulamak, ayni tutarda MESRU
+      // ikinci bir tahsilati yanlislikla reddederdi (FAZ 2 · Sira 9b).
       const pencereBasi = new Date(Date.now() - MUKERRER_PENCERE_MS);
-      const ayni = await tx.customerPayment.findFirst({
+      const ayni = idempotencyKey ? null : await tx.customerPayment.findFirst({
         where: {
           saleId,
           amount: round2(amount),
@@ -81,7 +111,7 @@ export async function POST(req: NextRequest) {
       const yeniKalan = round2(money(sale.saleAmount).minus(yeniOdenen));
 
       const payment = await tx.customerPayment.create({
-        data: { customerId, saleId, amount: round2(amount), paymentMethod, note: note ?? null },
+        data: { customerId, saleId, amount: round2(amount), paymentMethod, note: note ?? null, idempotencyKey },
       });
       const updatedSale = await tx.sale.update({
         where: { id: saleId },
@@ -95,7 +125,8 @@ export async function POST(req: NextRequest) {
       return { kind: "created" as const, payment, sale: updatedSale };
     },
     { maxWait: 5_000, timeout: 15_000 }
-  );
+    );
+  }
 
   switch (outcome.kind) {
     case "not_found":
@@ -115,6 +146,16 @@ export async function POST(req: NextRequest) {
           remainingAmount: outcome.kalan,
         },
         { status: 400 }
+      );
+    case "replay":
+      // Idempotent tekrar: islem zaten yapilmis. Hata degil, "tamam" denir.
+      return Response.json(
+        {
+          payment: serializeMoney(outcome.payment, ["amount"]),
+          sale: outcome.sale ? serializeSale(outcome.sale) : null,
+          idempotent: true,
+        },
+        { status: 200 }
       );
     case "duplicate":
       return Response.json(

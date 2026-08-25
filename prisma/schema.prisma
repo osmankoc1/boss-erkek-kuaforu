@@ -227,6 +227,13 @@ model CustomerPayment {
   note          String?
   paymentDate   DateTime  @default(now())
   createdAt     DateTime  @default(now())
+
+  /// Istemcinin urettigi benzersiz istek anahtari (FAZ 2 - Sira 9b).
+  ///
+  /// Nullable + unique bilerek secildi: Postgres unique index'te NULL'lar
+  /// catismaz, dolayisiyla mevcut satirlar ve anahtar gondermeyen istemciler
+  /// bozulmaz. Ayni kalip semada zaten var (Appointment.verificationToken).
+  idempotencyKey String? @unique
 }
 
 /// Berbere GERCEKTEN odenen hakedis defteri (FAZ 2 - Sira 8).
@@ -251,6 +258,13 @@ model BarberPayout {
   note          String?
   payoutDate    DateTime @default(now())
   createdAt     DateTime @default(now())
+
+  /// Istemcinin urettigi benzersiz istek anahtari (FAZ 2 - Sira 9b).
+  ///
+  /// Nullable + unique bilerek secildi: Postgres unique index'te NULL'lar
+  /// catismaz, dolayisiyla mevcut satirlar ve anahtar gondermeyen istemciler
+  /// bozulmaz. Ayni kalip semada zaten var (Appointment.verificationToken).
+  idempotencyKey String? @unique
 
   @@index([barberId, payoutDate])
   @@index([payoutDate])

@@ -14,6 +14,7 @@ import {
 import { buildCommissionReport } from "@/lib/commission-report";
 import { money, round2, toNumber, serializeMoney } from "@/lib/money";
 import { moneyAmount } from "@/lib/money-schema";
+import { idempotencyKeySchema, isIdempotencyConflict, normalizeKey } from "@/lib/idempotency";
 
 /**
  * Hakediş ödeme defteri (FAZ 2 · Sıra 8).
@@ -29,6 +30,7 @@ const schema = z.object({
   periodStart: z.string().min(1),
   periodEnd: z.string().min(1),
   note: z.string().max(500).optional().nullable(),
+  idempotencyKey: idempotencyKeySchema,
 });
 
 /**
@@ -73,6 +75,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) return Response.json({ error: "Geçersiz veri." }, { status: 400 });
 
   const { barberId, amount, paymentMethod, note } = parsed.data;
+  const idempotencyKey = normalizeKey(parsed.data.idempotencyKey);
 
   // Dönem ZORUNLU ve tutarlı olmalı. Zod `strip` semantiği sayesinde istemciden
   // gelen `payoutDate` gibi fazladan alanlar sessizce atılır; ödeme tarihini
@@ -81,13 +84,33 @@ export async function POST(req: NextRequest) {
   if (!period.ok) {
     return Response.json({ error: period.error, code: "INVALID_PERIOD" }, { status: 400 });
   }
+  // Daraltilmis degerler disari alinir: asagidaki kapanis icinde TypeScript
+  // `period.ok` daraltmasini koruyamiyor.
+  const { periodStart, periodEnd } = period;
 
   // Kontrol ve yazma TEK transaction içinde, berber bazlı advisory lock
   // altında. Kilitsiz hâlde iki eşzamanlı istek aynı kalanı okuyup ikisi de
   // geçerli sayılır ve kalan negatife düşerdi.
-  const outcome = await db.$transaction(
+  const outcome = await calistir().catch(async (e) => {
+    // Advisory lock ayni berber icin yarisi serilestirir; bu yakalama farkli
+    // berberlere ayni anahtarla gelen es zamanli istekler icindir. Son sozu
+    // unique index soyler.
+    if (!isIdempotencyConflict(e) || !idempotencyKey) throw e;
+    const payout = await db.barberPayout.findUnique({ where: { idempotencyKey } });
+    if (!payout) throw e;
+    return { kind: "replay" as const, payout };
+  });
+
+  function calistir() {
+    return db.$transaction(
     async (tx) => {
       await acquireAdvisoryLock(tx, BARBER_PAYOUT_LOCK, barberId);
+
+      // Ayni anahtarla kayit varsa istek TEKRARIDIR; yeni odeme yazilmaz.
+      if (idempotencyKey) {
+        const varOlan = await tx.barberPayout.findUnique({ where: { idempotencyKey } });
+        if (varOlan) return { kind: "replay" as const, payout: varOlan };
+      }
 
       const barber = await tx.barber.findUnique({
         where: { id: barberId },
@@ -115,13 +138,15 @@ export async function POST(req: NextRequest) {
       // Kalanın üstü SESSİZCE KIRPILMAZ; istek reddedilir, hiçbir şey yazılmaz.
       if (round2(amount).greaterThan(kalan)) return { kind: "too_much" as const, accrued, paid, kalan };
 
+      // Acik anahtar varsa sezgisel pencere atlanir; anahtar son sozu soyler
+      // ve ayni tutarda mesru ikinci bir odeme reddedilmez (FAZ 2 · Sira 9b).
       const pencereBasi = new Date(Date.now() - MUKERRER_PENCERE_MS);
-      const ayni = await tx.barberPayout.findFirst({
+      const ayni = idempotencyKey ? null : await tx.barberPayout.findFirst({
         where: {
           barberId,
           amount: round2(amount),
-          periodStart: period.periodStart,
-          periodEnd: period.periodEnd,
+          periodStart,
+          periodEnd,
           createdAt: { gte: pencereBasi },
         },
         select: { id: true },
@@ -133,9 +158,10 @@ export async function POST(req: NextRequest) {
           barberId,
           amount: round2(amount),
           paymentMethod,
-          periodStart: period.periodStart,
-          periodEnd: period.periodEnd,
+          periodStart,
+          periodEnd,
           note: note ?? null,
+          idempotencyKey,
           // payoutDate bilinçli olarak verilmez: şema varsayılanı (now())
           // devreye girer. Geçmişe ödeme tarihi girilemez; geçmiş dönem
           // periodStart/periodEnd ile ifade edilir.
@@ -153,7 +179,8 @@ export async function POST(req: NextRequest) {
       };
     },
     { maxWait: 5_000, timeout: 15_000 }
-  );
+    );
+  }
 
   switch (outcome.kind) {
     case "not_found":
@@ -187,6 +214,12 @@ export async function POST(req: NextRequest) {
           remaining: outcome.kalan,
         },
         { status: 400 }
+      );
+    case "replay":
+      // Idempotent tekrar: odeme zaten kaydedilmis. Hata degil.
+      return Response.json(
+        { payout: serializeMoney(outcome.payout, ["amount"]), idempotent: true },
+        { status: 200 }
       );
     case "duplicate":
       return Response.json(
