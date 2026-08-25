@@ -33,6 +33,8 @@ export const VOIDED_STATUS = "VOIDED";
 /** Ciro hesabı için gereken asgari satış alanları. */
 export type RevenueSale = {
   saleStatus: string;
+  /** Hizmetin liste (etiket) fiyatı. İndirim bundan türetilir. */
+  listedPrice?: MoneyInput;
   saleAmount: MoneyInput;
   paidAmount: MoneyInput;
   remainingAmount: MoneyInput;
@@ -54,6 +56,21 @@ export type RevenueExpense = { amount: MoneyInput };
 export type RevenuePayment = { amount: MoneyInput; paymentMethod: string };
 
 export type RevenueSummary = {
+  /**
+   * Toplam Liste Fiyatı — indirim uygulanmadan önceki tutar.
+   *
+   * `listedPrice` kaydedilmemiş (0) satışlarda satış tutarının kendisi
+   * kullanılır: liste fiyatı bilinmiyorken indirim iddia edilemez.
+   */
+  listedTotal: number;
+  /**
+   * Toplam İndirim = Liste Fiyatı − Gerçekleşen Ciro.
+   *
+   * Üç rakam daima birbirini tutar: `listedTotal − discount = realizedRevenue`.
+   * Liste fiyatının üstünde satış yapıldıysa negatif çıkar; bu bilinçli olarak
+   * gizlenmez.
+   */
+  discount: number;
   /** Gerçekleşen Ciro — yapılan işin tutarı (VOID hariç). */
   realizedRevenue: number;
   /** Tahsilat — kasaya giren para. */
@@ -106,12 +123,17 @@ export function summarizeRevenue(input: {
   const active = activeSales(sales);
 
   let realizedRevenue = ZERO;
+  let listedTotal = ZERO;
   let credit = ZERO;
   let barberShare = ZERO;
   let businessShare = ZERO;
 
   for (const sale of active) {
     realizedRevenue = realizedRevenue.plus(money(sale.saleAmount));
+    // Liste fiyatı kaydedilmemişse (0) satış tutarı esas alınır — aksi hâlde
+    // eski kayıtlar tüm tutar kadar "indirim" gibi görünürdü.
+    const liste = money(sale.listedPrice ?? 0);
+    listedTotal = listedTotal.plus(liste.greaterThan(0) ? liste : money(sale.saleAmount));
     credit = credit.plus(money(sale.remainingAmount));
     barberShare = barberShare.plus(money(sale.barberShare));
     businessShare = businessShare.plus(money(sale.businessShare));
@@ -131,8 +153,13 @@ export function summarizeRevenue(input: {
 
   const totalExpenses = sum(expenses.map((e) => e.amount));
 
+  const listedRounded = round2(listedTotal);
+  const realizedRounded = round2(realizedRevenue);
+
   return {
-    realizedRevenue: toNumber(round2(realizedRevenue)),
+    listedTotal: toNumber(listedRounded),
+    discount: toNumber(round2(listedRounded.minus(realizedRounded))),
+    realizedRevenue: toNumber(realizedRounded),
     collected: toNumber(round2(collected)),
     credit: toNumber(round2(credit)),
     barberShare: toNumber(round2(barberShare)),

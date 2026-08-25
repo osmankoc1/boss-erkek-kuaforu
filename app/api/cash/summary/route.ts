@@ -34,6 +34,10 @@ export async function GET(req: NextRequest) {
 
   return Response.json({
     // Kanonik adlar
+    // Indirim gorunurlugu (FAZ 2 · Sira 10). Uc rakam birbirini tutar:
+    //   listedTotal - discount = realizedRevenue
+    listedTotal: ozet.listedTotal,
+    discount: ozet.discount,
     realizedRevenue: ozet.realizedRevenue,
     collected: ozet.collected,
     credit: ozet.credit,

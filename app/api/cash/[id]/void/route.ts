@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
 import { recalculateCustomerCounters } from "@/lib/customer-counters";
-import { round2, sum, serializeSale } from "@/lib/money";
+import { money, round2, serializeSale, ZERO, type Money } from "@/lib/money";
 
 const schema = z.object({
   voidReason: z.string().optional().nullable(),
@@ -69,18 +69,37 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     // 4) Tahsil edilmiş para void gününe ters kayıtla iade edilir.
+    //
+    // Ters kayıt ÖDEME YÖNTEMİ BAZINDA üretilir (FAZ 2 · Sıra 10). Önceden
+    // tek satır yazılıyor ve tamamı satışın `paymentMethod` alanına
+    // yükleniyordu; toplam doğru çıkıyor ama yöntem kırılımı bozuluyordu:
+    //
+    //   100 NAKİT + 200 KART tahsilat, tek satır -300 NAKİT ters kayıt
+    //   → CASH -200 (kasadan hiç 200 çıkmadı), CARD +200 (iade görünmüyor)
+    //
+    // Artık satışın gerçek tahsilat satırları yönteme göre gruplanır ve her
+    // yöntem kendi netini ters kayıtla kapatır. Gün sonunda "bugün kartla ne
+    // aldık" sorusu doğru cevaplanır.
     const odemeler = await tx.customerPayment.findMany({
       where: { saleId: id },
-      select: { amount: true },
+      select: { amount: true, paymentMethod: true },
     });
-    const netTahsilat = round2(sum(odemeler.map((p) => p.amount)));
-    if (!netTahsilat.isZero()) {
+
+    const yontemNet = new Map<string, Money>();
+    for (const p of odemeler) {
+      yontemNet.set(p.paymentMethod, (yontemNet.get(p.paymentMethod) ?? ZERO).plus(money(p.amount)));
+    }
+
+    for (const [yontem, ham] of yontemNet) {
+      const net = round2(ham);
+      // Nette sıfırlanmış yöntem için ters kayıt gerekmez.
+      if (net.isZero()) continue;
       await tx.customerPayment.create({
         data: {
           customerId: existing.customerId,
           saleId: id,
-          amount: -netTahsilat,
-          paymentMethod: existing.paymentMethod,
+          amount: net.negated(),
+          paymentMethod: yontem,
           paymentDate: voidedAt,
           note: "Satış iptali (void) — tahsilat iadesi",
         },

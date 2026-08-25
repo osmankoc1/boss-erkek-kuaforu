@@ -3,7 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/dal";
 import { calcShares, calcStatus } from "@/lib/sale";
-import { round2, serializeSale } from "@/lib/money";
+import { round2, serializeSale, toNumber } from "@/lib/money";
 import { moneyAmount } from "@/lib/money-schema";
 
 const patchSchema = z.object({
@@ -28,6 +28,31 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const saleAmount = round2(parsed.data.saleAmount ?? existing.saleAmount);
   const paidAmount = round2(parsed.data.paidAmount ?? existing.paidAmount);
+
+  // Satis tutari, tahsil edilmis paranin ALTINA cekilemez (FAZ 2 · Sira 10).
+  //
+  // Onceden bu sessizce NEGATIF `remainingAmount` uretiyordu: 1000 TL tahsil
+  // edilmis bir satis 400'e cekilince kalan -600 oluyor, durum "PAID"
+  // kaliyordu. Musteri 600 TL fazla odemis durumda ama ne uyari cikiyor ne
+  // iade izi olusuyordu.
+  //
+  // Iade BILINCLI olarak burada uretilmez; ayri bir is akisidir. Bu uc nokta
+  // yalnizca tutarsiz durumu reddeder. (Ayni ilke Sira 6'da "kalan borctan
+  // fazlasini kirpma, reddet" kararinda da uygulanmisti.)
+  if (saleAmount.lessThan(paidAmount)) {
+    return Response.json(
+      {
+        error:
+          `Satış tutarı ${saleAmount.toFixed(2)} ₺, tahsil edilmiş ${paidAmount.toFixed(2)} ₺'nin altına ` +
+          `çekilemez. Önce tahsilatı düzeltin ya da iade işlemini ayrıca yapın.`,
+        code: "AMOUNT_BELOW_COLLECTED",
+        saleAmount: toNumber(saleAmount),
+        paidAmount: toNumber(paidAmount),
+      },
+      { status: 400 }
+    );
+  }
+
   const remainingAmount = round2(saleAmount.minus(paidAmount));
   const saleStatus = calcStatus(paidAmount, saleAmount);
   const { barberShare, businessShare } = calcShares(saleAmount, existing.barberWorkerType, existing.barberCommissionRate);

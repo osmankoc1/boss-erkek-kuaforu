@@ -72,14 +72,19 @@ export default function KasaClient({ initialSales, barbers, services, selectedDa
   // Gun Sonu ve Dashboard ayni fonksiyonu kullanir; rakamlar birebir ayni.
   const ozet = summarizeRevenue({ sales: filteredSales, payments: [] });
   const totalSales = ozet.realizedRevenue;   // Gerceklesen Ciro (satis gunu)
+  const listedTotal = ozet.listedTotal;      // Liste fiyati toplami
+  const discount = ozet.discount;            // Indirim (FAZ 2 · Sira 10)
   const totalCredit = ozet.credit;
   const totalPaid = dayCollected;            // Tahsilat (odeme gunu)
 
   return (
     <>
       {/* Özet */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         {[
+          // Liste Fiyati - Indirim = Gerceklesen Ciro (FAZ 2 · Sira 10)
+          { label: "Liste Fiyatı", value: listedTotal, color: "text-[#9ca3af]" },
+          { label: "İndirim", value: discount, color: discount > 0 ? "text-yellow-400" : "text-[#6b7280]" },
           { label: filterBarberId ? `Ciro (${barbers.find(b => b.id === filterBarberId)?.name})` : "Gerçekleşen Ciro", value: totalSales, color: "text-white" },
           { label: filterBarberId ? "Tahsilat (gün geneli)" : "Tahsilat", value: totalPaid, color: "text-green-400" },
           { label: "Veresiye Kalan", value: totalCredit, color: "text-orange-400" },

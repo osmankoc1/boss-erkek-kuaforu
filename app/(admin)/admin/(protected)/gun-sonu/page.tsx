@@ -34,6 +34,8 @@ export default async function GunSonuPage({ searchParams }: { searchParams: Sear
   // Ciro hesabi tek yerde: lib/revenue.ts (FAZ 2 · Sira 2).
   // Kasa, Gun Sonu ve Dashboard ayni fonksiyondan beslenir.
   const ozet = summarizeRevenue({ sales, payments, expenses });
+  const listedTotal = ozet.listedTotal;      // Liste fiyati toplami
+  const discount = ozet.discount;            // Indirim (liste - ciro)
   const totalSales = ozet.realizedRevenue;   // Gerceklesen Ciro
   const totalPaid = ozet.collected;          // Tahsilat
   const totalCredit = ozet.credit;
@@ -58,6 +60,9 @@ export default async function GunSonuPage({ searchParams }: { searchParams: Sear
   }));
 
   const summaryCards = [
+    // Uc rakam birbirini tutar: Liste Fiyati - Indirim = Gerceklesen Ciro
+    { label: "Toplam Liste Fiyatı", value: listedTotal, color: "text-[#9ca3af]", sub: "indirim öncesi" },
+    { label: "Toplam İndirim", value: discount, color: discount > 0 ? "text-yellow-400" : "text-[#6b7280]", sub: "Liste − Ciro" },
     { label: "Gerçekleşen Ciro", value: totalSales, color: "text-white", sub: `${active.length} işlem` },
     { label: "Tahsilat", value: totalPaid, color: "text-green-400", sub: "kasaya giren para" },
     { label: "Toplam Gider", value: totalExpenses, color: "text-red-400", sub: `${expenses.length} gider kalemi` },

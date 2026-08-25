@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { round2, toNumber, ZERO, type Money } from "@/lib/money";
-import { summarizeRevenue, expectedRevenue } from "@/lib/revenue";
+import { summarizeRevenue, expectedRevenue, VOIDED_STATUS } from "@/lib/revenue";
 import { startOfIstanbulDay, startOfNextIstanbulDay, startOfIstanbulWeek, startOfIstanbulMonth, startOfNextIstanbulMonth, addIstanbulDays } from "@/lib/tz";
 import { formatDate, formatPrice } from "@/lib/utils";
 import { AppointmentAreaChart, HoursBarChart, DaysBarChart } from "./DashboardCharts";
@@ -194,7 +194,14 @@ async function getStats(range: string, customFrom?: string, customTo?: string) {
       where: { saleDate: { gte: monthStart, lt: monthEnd }, saleStatus: { not: "VOIDED" } },
       _sum: { saleAmount: true, paidAmount: true, remainingAmount: true },
     }),
-    db.appointment.count({ where: { status: "completed", sales: { none: {} } } }),
+    // "Kasa kaydi eksik" sayaci — VOID edilmis satis AKTIF kayit sayilmaz
+    // (FAZ 2 · Sira 10). Onceden `sales: { none: {} }` idi: yanlis tutarla
+    // girilip VOID edilen bir randevunun VOIDED satir kaydi duruyor oldugu
+    // icin randevu "satisi var" sayiliyor ve uyaridan DUSUYORDU. Para
+    // sessizce eksik kalabiliyordu.
+    db.appointment.count({
+      where: { status: "completed", sales: { none: { saleStatus: { not: VOIDED_STATUS } } } },
+    }),
   ]);
 
   return {
