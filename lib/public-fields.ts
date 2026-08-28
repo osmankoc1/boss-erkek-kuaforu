@@ -43,7 +43,11 @@ export type PublicBarber = {
  * zaten gösteriliyor olsa da, aynı değer yeni randevu bildirimlerinin gittiği
  * operasyonel adres olarak kullanılıyor (bkz. app/api/appointments/route.ts).
  * Toplu ve makine okunur biçimde servis etmek gereksiz bir spam yüzeyidir.
- * `resend_from_email` ve `google_calendar_*` da dahili yapılandırmadır.
+ *
+ * Not: `resend_from_email` ve `google_calendar_*` anahtarları FAZ 3 · Sıra
+ * 3.3'te tamamen kaldırıldı (hiçbir kod okumuyordu). Eski kurulumlardan
+ * kalan satırlar veritabanında duruyor olabilir; bu liste onları zaten
+ * tanımadığı için oturumsuz çağrıya sızmazlar.
  */
 export const PUBLIC_SETTING_KEYS = [
   "business_name",

@@ -86,8 +86,8 @@ async function main() {
     { key: "business_email", value: "info@boss-kuafor.com" },
     { key: "business_address", value: "Bağcılar, İstanbul, Türkiye" },
     { key: "maps_link", value: "" },
-    { key: "resend_from_email", value: "randevu@boss-kuafor.com" },
-    { key: "google_calendar_enabled", value: "false" },
+    // `resend_from_email` ve `google_calendar_enabled` FAZ 3 · Sıra 3.3'te
+    // kaldırıldı: hiçbir kod okumuyordu, her kurulumda ölü satır ekiyorlardı.
   ];
   for (const s of defaultSettings) {
     await db.setting.upsert({ where: { key: s.key }, update: {}, create: s });

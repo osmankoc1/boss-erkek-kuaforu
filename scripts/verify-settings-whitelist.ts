@@ -47,7 +47,7 @@ async function post(body: unknown, withAuth = true) {
 }
 const keyOf = (k: string) => db.setting.findUnique({ where: { key: k }, select: { value: true } });
 
-/** Uygulamanin destekledigi 10 anahtar (SettingsForm FIELDS ile birebir). */
+/** Uygulamanin destekledigi 7 anahtar (SettingsForm FIELDS ile birebir). */
 const KNOWN = [
   "business_name",
   "business_phone",
@@ -56,10 +56,15 @@ const KNOWN = [
   "maps_link",
   "instagram_url",
   "facebook_url",
-  "resend_from_email",
-  "google_calendar_enabled",
-  "google_calendar_id",
 ];
+
+/**
+ * FAZ 3 - Sira 3.3'te kaldirilan olu anahtarlar.
+ *
+ * Artik "bilinen" degil, "reddedilen" tarafindalar: gonderilseler bile
+ * Zod tarafindan atilirlar ve veritabanina yazilmazlar.
+ */
+const KALDIRILAN = ["resend_from_email", "google_calendar_enabled", "google_calendar_id"];
 
 const EVIL = ["__evil_key__", "isAdmin", "DATABASE_URL", "hacked.setting", "a".repeat(150)];
 
@@ -97,9 +102,6 @@ async function main() {
       maps_link: "https://www.google.com/maps/embed?pb=!1m18",
       instagram_url: "https://www.instagram.com/test/",
       facebook_url: "",
-      resend_from_email: "gonderen@example.com",
-      google_calendar_enabled: "false",
-      google_calendar_id: "",
     };
     const ok = await post(payload);
     check("Tum bilinen alanlar -> 200", ok.status === 200, `gelen ${ok.status} ${JSON.stringify(ok.body).slice(0, 120)}`);
@@ -140,10 +142,10 @@ async function main() {
       ["value object", { business_name: { a: 1 } }],
       ["value array", { business_name: ["a"] }],
       ["value null", { business_name: null }],
-      ["value bool", { google_calendar_enabled: true }],
+      ["value bool", { business_name: true }],
       ["gecersiz e-posta", { business_email: "bu-bir-eposta-degil" }],
       ["gecersiz url", { instagram_url: "instagram.com/eksik-protokol" }],
-      ["enum disi", { google_calendar_enabled: "belki" }],
+      ["asiri uzun url", { instagram_url: "https://x.com/" + "y".repeat(2100) }],
       ["body dizi", ["a", "b"]],
       ["body string", "duz-metin"],
       ["asiri uzun deger", { business_name: "x".repeat(5000) }],
@@ -155,8 +157,31 @@ async function main() {
 
     // ── TEST 6 — Bos deger ──────────────────────────────────────────────
     console.log("\nTEST 6 — Bos deger kabul ediliyor");
-    const empty = await post({ facebook_url: "", google_calendar_id: "" });
+    const empty = await post({ facebook_url: "", maps_link: "" });
     check("Bos string -> 200", empty.status === 200, `gelen ${empty.status}`);
+
+    // ── TEST 6b — Kaldirilan olu anahtarlar (FAZ 3 · Sira 3.3) ──────────
+    console.log("\nTEST 6b — Kaldirilan anahtarlar yazilamiyor");
+    {
+      const oncekiler = new Map<string, string | undefined>();
+      for (const k of KALDIRILAN) oncekiler.set(k, (await keyOf(k))?.value);
+
+      // Yalnizca olu anahtar: yazilacak gecerli alan kalmaz.
+      const yalniz = await post(Object.fromEntries(KALDIRILAN.map((k) => [k, "zz-yazilmamali"])));
+      check("Yalnizca kaldirilan anahtar -> 400", yalniz.status === 400, `gelen ${yalniz.status}`);
+
+      // Mesru alanla birlikte: mesru yazilir, olu atilir.
+      const karisik = await post({
+        business_name: "ZZ Whitelist Testi",
+        ...Object.fromEntries(KALDIRILAN.map((k) => [k, "zz-yazilmamali"])),
+      });
+      check("Mesru + kaldirilan karisik -> 200", karisik.status === 200, `gelen ${karisik.status}`);
+
+      for (const k of KALDIRILAN) {
+        const simdi = (await keyOf(k))?.value;
+        check(`  '${k}' DEGISMEDI`, simdi === oncekiler.get(k), `once=${oncekiler.get(k)} simdi=${simdi}`);
+      }
+    }
 
     // ── TEST 7 — Yetkilendirme ──────────────────────────────────────────
     console.log("\nTEST 7 — Yetkilendirme");

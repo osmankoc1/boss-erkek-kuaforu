@@ -39,11 +39,25 @@ export const settingsUpdateSchema = z.object({
   maps_link: optionalUrl.optional(),
   instagram_url: optionalUrl.optional(),
   facebook_url: optionalUrl.optional(),
-  resend_from_email: optionalEmail.optional(),
-  // Arayüzde "true/false" metni olarak giriliyor; boş da bırakılabiliyor.
-  google_calendar_enabled: z.enum(["", "true", "false"]).optional(),
-  google_calendar_id: text(200).optional(),
 });
+
+/**
+ * KALDIRILAN ANAHTARLAR (FAZ 3 · Sıra 3.3)
+ *
+ * `resend_from_email`, `google_calendar_enabled`, `google_calendar_id`
+ * buradan çıkarıldı çünkü hiçbir şey okumuyordu:
+ *
+ *   • Gönderici adresi `lib/mail.ts` içinde `process.env.RESEND_FROM_EMAIL`
+ *     ile belirleniyor; ayar tablosuna hiç bakılmıyor. Panelde düzenlenebilir
+ *     durması, işletme sahibine gönderici adresini değiştirdiğini SANDIRIYORDU.
+ *   • Projede Google Calendar entegrasyonu yok: paket bağımlılığı, çağrı ve
+ *     `googleEventId` sütununu yazan kod — hiçbiri mevcut değil.
+ *
+ * Zod bilinmeyen anahtarları atar (strip), dolayısıyla eski arayüzden ya da
+ * veritabanında duran eski satırlardan gelseler bile sessizce düşerler; kayıt
+ * kilitlenmez. Gönderici adresi bir gün panelden yönetilecekse bu bir
+ * TEMİZLİK değil YENİ ÖZELLİK olur: `lib/mail.ts`'in ayarı okuması gerekir.
+ */
 
 export type SettingsUpdate = z.infer<typeof settingsUpdateSchema>;
 

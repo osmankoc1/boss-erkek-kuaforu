@@ -21,7 +21,13 @@ const BASE_URL = process.env.TEST_BASE_URL ?? "http://localhost:3000";
 
 /** Public yanıtta/HTML'de ASLA görünmemesi gereken alanlar. */
 const FORBIDDEN_FIELDS = ["commissionRate", "workerType"] as const;
-/** Public settings yanıtında görünmemesi gereken anahtarlar. */
+/**
+ * Public settings yanıtında görünmemesi gereken anahtarlar.
+ *
+ * Son üçü FAZ 3 · Sıra 3.3'te üründen kaldırıldı. Listede BİLEREK duruyorlar:
+ * eski kurulumlardan kalan satırlar veritabanında hâlâ olabilir ve bu kontrol
+ * onların oturumsuz çağrıya sızmadığını doğrulamaya devam ediyor.
+ */
 const PRIVATE_SETTING_KEYS = ["business_email", "resend_from_email", "google_calendar_enabled", "google_calendar_id"] as const;
 
 const { connectionString: connectionString } = assertReadableDatabase();

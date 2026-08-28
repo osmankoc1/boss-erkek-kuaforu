@@ -1,6 +1,15 @@
 "use client";
 import { useState } from "react";
 
+/**
+ * Düzenlenebilir ayarlar — `lib/settings-schema.ts` ile BİREBİR aynı olmalı.
+ *
+ * "Bildirimler" ve "Google Calendar" bölümleri FAZ 3 · Sıra 3.3'te kaldırıldı:
+ * içlerindeki alanları hiçbir kod okumuyordu. Özellikle "Gönderici E-posta"
+ * kaydedilebiliyor ve denetim izine geçiyordu ama e-postaların göndericisini
+ * değiştirmiyordu (o adres `RESEND_FROM_EMAIL` ortam değişkeninden geliyor).
+ * Çalışmayan bir alanı düzenlenebilir göstermek, hiç göstermemekten kötüdür.
+ */
 const FIELDS = [
   { key: "business_name", label: "İşletme Adı", section: "İşletme Bilgileri" },
   { key: "business_phone", label: "Telefon", section: "İşletme Bilgileri" },
@@ -9,9 +18,6 @@ const FIELDS = [
   { key: "maps_link", label: "Google Maps Embed URL", section: "İşletme Bilgileri" },
   { key: "instagram_url", label: "Instagram URL", section: "Sosyal Medya" },
   { key: "facebook_url", label: "Facebook URL", section: "Sosyal Medya" },
-  { key: "resend_from_email", label: "Gönderici E-posta (Resend)", section: "Bildirimler" },
-  { key: "google_calendar_enabled", label: "Google Calendar Aktif (true/false)", section: "Google Calendar" },
-  { key: "google_calendar_id", label: "Google Calendar ID", section: "Google Calendar" },
 ];
 
 export default function SettingsForm({ settings }: { settings: Record<string, string> }) {
