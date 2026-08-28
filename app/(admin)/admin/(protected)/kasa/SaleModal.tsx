@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import ServicePicker, { type PickerService, type SelectedItem } from "@/components/admin/ServicePicker";
+import { senkronizeTutarlar } from "@/lib/sale-amounts";
 
 type Barber = { id: string; name: string; workerType: string; commissionRate: number };
 type CustomerResult = { id: string; fullName: string; phone: string };
@@ -48,15 +49,30 @@ export default function SaleModal({ barbers, services, appointmentId, prefill, o
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Sync saleAmount when items change (only if no manual override yet)
+  // Hizmet secimi degistiginde tutarlari senkronize et (FAZ 3 · Sira 3.7A).
+  //
+  // Kural `lib/sale-amounts.ts` icinde saf bir fonksiyonda; testi orada.
+  // Onceden burada tahsilat da kosulsuz olarak toplama esitleniyordu ve
+  // kullanicinin ELLE girdigi tahsilati eziyordu: 600 TL satista 200 TL
+  // tahsilat girilip ikinci hizmet eklendiginde 400 TL'lik veresiye
+  // sessizce kayboluyordu.
   const [priceManuallySet, setPriceManuallySet] = useState(false);
+  const [paidManuallySet, setPaidManuallySet] = useState(false);
   useEffect(() => {
-    if (!priceManuallySet) {
-      const total = selectedItems.reduce((s, i) => s + i.price, 0);
-      setSaleAmount(total);
-      setPaidAmount(total);
-    }
-  }, [selectedItems, priceManuallySet]);
+    const sonuc = senkronizeTutarlar({
+      toplam: selectedItems.reduce((s, i) => s + i.price, 0),
+      tutarElleGirildi: priceManuallySet,
+      tahsilatElleGirildi: paidManuallySet,
+      mevcutTutar: saleAmount,
+      mevcutTahsilat: paidAmount,
+    });
+    // `senkronizeTutarlar` idempotenttir: ayni girdiyle ayni sonucu verir.
+    // Bu yuzden `saleAmount`/`paidAmount` bagimlilikta olsa bile dongu
+    // olusmaz — ikinci gecis ayni degeri uretir ve React yeniden render
+    // etmez.
+    setSaleAmount(sonuc.saleAmount);
+    setPaidAmount(sonuc.paidAmount);
+  }, [selectedItems, priceManuallySet, paidManuallySet, saleAmount, paidAmount]);
 
   useEffect(() => {
     if (customerMode !== "search" || searchQuery.length < 2) {
@@ -272,7 +288,7 @@ export default function SaleModal({ barbers, services, appointmentId, prefill, o
             <div>
               <label className="block text-[11px] font-semibold text-[#9ca3af] uppercase tracking-wider mb-1.5">Ödenen ₺</label>
               <input type="number" min="0" step="0.01" value={paidAmount}
-                onChange={(e) => setPaidAmount(parseFloat(e.target.value) || 0)}
+                onChange={(e) => { setPaidManuallySet(true); setPaidAmount(parseFloat(e.target.value) || 0); }}
                 className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-md px-3 py-2 text-[13px] text-white focus:outline-none focus:border-[#c9762c]/50" />
             </div>
             <div>

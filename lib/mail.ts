@@ -45,7 +45,8 @@ export type MailKind =
   | "cancellation"
   | "reminder"
   | "admin_new_booking"
-  | "admin_verified";
+  | "admin_verified"
+  | "health_summary";
 
 /**
  * Log/PII güvenliği: e-posta adresini `ab***@domain.com` biçimine indirger.
@@ -212,6 +213,56 @@ export async function sendReminderEmail(appt: AppointmentFull) {
         <tr><td><strong>Hizmet:</strong></td><td>${appt.service?.name ?? "—"}</td></tr>
         <tr><td><strong>Çalışan:</strong></td><td>${appt.barber.name}</td></tr>
       </table>
+    `),
+  });
+}
+
+/** Günlük sağlık özetinin taşıdığı sayılar (FAZ 3 · Sıra 3.6). */
+export type HealthSummary = {
+  /** Özetin kapsadığı Europe/Istanbul takvim günü. */
+  date: string;
+  reminderSent: number;
+  reminderFailed: number;
+  /** Son 24 saatte doğrulanmadığı için iptal edilen randevu. */
+  expiredCancelled: number;
+  /** Yarın için planlı randevu (iptal edilmemiş). */
+  tomorrowAppointments: number;
+};
+
+/**
+ * Günlük sağlık özeti — işletme sahibine sistemin durumunu bildirir.
+ *
+ * ─── NEDEN VAR ───────────────────────────────────────────────────────────
+ * Hatırlatma gönderimi başarısız olduğunda bu yalnızca `console.error` ile
+ * runtime loguna yazılıyordu; oraya kimse bakmıyor. `RESEND_API_KEY` süresi
+ * dolsa randevular alınmaya devam eder, tek bir hatırlatma gitmez ve durum
+ * günlerce fark edilmez.
+ *
+ * Bu e-posta tek başına yeterli DEĞİLDİR: Resend tamamen çökerse özetin
+ * kendisi de gitmez. Asıl emniyet ağı cron'un başarısızlıkta 5xx dönmesidir
+ * (bkz. app/api/cron/route.ts) — o, e-postadan bağımsız çalışır.
+ */
+export async function sendDailyHealthSummary(to: string, s: HealthSummary) {
+  const sorun = s.reminderFailed > 0;
+  const durum = sorun
+    ? `<p style="color:#f87171"><strong>${s.reminderFailed} hatırlatma gönderilemedi.</strong>
+       E-posta servisinde bir sorun olabilir.</p>`
+    : `<p style="color:#4ade80">Bugün beklenmedik bir durum yok.</p>`;
+
+  await dispatch({
+    from: FROM,
+    to,
+    subject: `${sorun ? "⚠ " : ""}Günlük Sistem Özeti (${s.date}) — BOSS Erkek Kuaförü`,
+    html: emailTemplate("Günlük Sistem Özeti", `
+      <p>${s.date} tarihli otomatik özet.</p>
+      ${durum}
+      <table>
+        <tr><td><strong>Gönderilen hatırlatma:</strong></td><td>${s.reminderSent}</td></tr>
+        <tr><td><strong>Başarısız hatırlatma:</strong></td><td>${s.reminderFailed}</td></tr>
+        <tr><td><strong>İptal edilen (doğrulanmamış):</strong></td><td>${s.expiredCancelled}</td></tr>
+        <tr><td><strong>Yarınki randevu:</strong></td><td>${s.tomorrowAppointments}</td></tr>
+      </table>
+      <p style="font-size:12px;color:#6b7280">Bu e-posta günde bir kez otomatik gönderilir.</p>
     `),
   });
 }
