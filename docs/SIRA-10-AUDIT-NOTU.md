@@ -1,60 +1,74 @@
-# Sıra 10 — Denetim İzi ve Düzenleme Geçmişi (ERTELENDİ)
+# Sıra 10 — Denetim İzi ve Düzenleme Geçmişi (TAMAMLANDI)
 
-**Durum:** Analiz edildi, kanıtlandı, **uygulanmadı.** Şemaya dokunulmadı.
-**Neden ertelendi:** Migration gerektiriyor ve ürün kararı bekliyor.
+**Durum:** Sıra 10b'de uygulandı ve production'a alındı.
+**Migration:** `20260825094005_audit_log`
+**Doğrulama:** `scripts/verify-audit-log.ts` (110 kontrol),
+`scripts/verify-appointment-delete-audit.ts` (59 kontrol)
 
-Sıra 10'un migration gerektirmeyen dört konusu (byMethod VOID atfı,
-pendingKasa, indirim görünürlüğü, negatif kalan) tamamlandı ve canlıya
-alınmaya hazır. Bu dosya kalan iki konu için **sonraki adımda** yapılacak
-analizin başlangıç noktasıdır.
+Bu dosya, kararın **neden** böyle verildiğini kayıt altında tutar. Karşılaştırma
+tablosu ve gerekçeler korunmuştur; uygulanmadan önce yazılmış "yapılacak"
+ifadeleri, verilen kararlarla değiştirilmiştir.
 
 ---
 
-## Kanıtlanmış açık
+## Çözülen açık
 
-`scripts/verify-audit-trail.ts` bunları her koşuda bilgi olarak basar
-(başarısızlık saymaz):
+Sıra 10 analizinde kanıtlanan durum şuydu:
 
-| Bulgu | Ölçüm |
+| Bulgu | O günkü ölçüm |
 |---|---|
-| Denetim/geçmiş tablosu | **Yok** |
-| `Sale`, `CustomerPayment`, `BarberPayout`, `Expense`'te aktör alanı | **Hiçbirinde yok** |
-| `User` modeline referans veren model | **Hiçbiri** |
-| Satış düzenlemesinde önceki tutar | **Saklanmıyor** — `1000 → 700` geri getirilemez |
-| Hakediş geriye dönük değişimi | `barberShare 400 → 280` **sessizce**, eski değer yok |
-| Kullanıcı notu | Düzenlemede **eziliyor** |
+| Denetim/geçmiş tablosu | Yok |
+| `Sale`, `CustomerPayment`, `BarberPayout`, `Expense`'te aktör alanı | Hiçbirinde yok |
+| Satış düzenlemesinde önceki tutar | Saklanmıyor — `1000 → 700` geri getirilemez |
+| Hakediş geriye dönük değişimi | `barberShare 400 → 280` sessizce |
+| Kullanıcı notu | Düzenlemede eziliyor |
 
 **Pratik sonuç:** Tek admin varken görünmez. İkinci kullanıcı eklendiği anda
-"bu satışı kim değiştirdi" sorusu cevapsız kalır.
+"bu satışı kim değiştirdi" sorusu cevapsız kalırdı.
+
+Bunların tamamı merkezi `AuditLog` ile kapandı.
 
 ---
 
-## Sonraki adımda değerlendirilecek yaklaşım: merkezi `AuditLog`
-
-### Taslak model (HENÜZ UYGULANMADI)
+## Uygulanan model
 
 ```prisma
 model AuditLog {
-  id         String   @id @default(cuid())
-  /// Hangi tablo: "Sale", "CustomerPayment", "BarberPayout", "Expense"
-  entity     String
-  entityId   String
-  /// "CREATE" | "UPDATE" | "VOID" | "DELETE"
-  action     String
-  /// İşlemi yapan admin. Silinen kullanıcıda kayıt kalsın diye ilişki
-  /// zorunlu tutulmaz; ad ayrıca snapshot'lanır.
-  userId     String?
-  userEmail  String?
-  /// Yalnızca DEĞİŞEN alanlar: { "saleAmount": { "from": 1000, "to": 700 } }
-  changes    Json?
-  createdAt  DateTime @default(now())
+  id       String @id @default(cuid())
+  entity   String   /// "Sale" | "CustomerPayment" | "BarberPayout" | "Expense" | "Customer" | "Appointment" | "Setting"
+  entityId String
+  action   String   /// "CREATE" | "UPDATE" | "VOID" | "DELETE" | "MERGE" | "STATUS_CHANGE"
+  source   String   /// "ADMIN" | "PUBLIC" | "SYSTEM"
 
-  @@index([entity, entityId, createdAt])
+  /// Aktör — yalnızca ADMIN kaynaklı işlemlerde dolu.
+  /// `User`'a FK YOKTUR: saklama süresi sınırsız, kullanıcı silinse bile
+  /// iz ayakta kalmalı. E-posta o anki haliyle snapshot'lanır.
+  userId    String?
+  userEmail String?
+
+  /// Yalnızca DEĞİŞEN alanlar: { "saleAmount": { "before": 1000, "after": 700 } }
+  changes   Json?
+  createdAt DateTime @default(now())
+
   @@index([createdAt])
+  @@index([entity, entityId, createdAt])
+  @@index([entity, action, createdAt])
+  @@index([source, createdAt])
 }
 ```
 
-### Merkezi tablo vs. model başına alan — karşılaştırma
+Taslaktan iki sapma oldu, ikisi de bilinçli:
+
+- **`source` ayrı bir alan olarak eklendi.** Kaynak bilgisini `userEmail`
+  içine sentinel metin olarak gömmek, o alanı hem kimlik hem etiket yapardı.
+- **`changes` içinde `from/to` yerine `before/after` kullanıldı** ve alan
+  seçimi fail-closed whitelist'e bağlandı (`lib/audit.ts`): listede olmayan
+  hiçbir alan denetim izine giremez. Yarın şemaya `apiKey` eklense bile
+  otomatik olarak dışarıda kalır.
+
+---
+
+## Neden merkezi tablo — model başına alan değil
 
 | | Merkezi `AuditLog` | Model başına `createdByUserId` |
 |---|---|---|
@@ -66,41 +80,52 @@ model AuditLog {
 | Yazma maliyeti | Her işlemde +1 satır | Yok |
 | Büyüme | Sınırsız — saklama politikası gerekir | Yok |
 
-**İlk değerlendirme:** Merkezi `AuditLog` daha uygun görünüyor; asıl ihtiyaç
-"kim oluşturdu" değil, **"kim neyi neye çevirdi"**. Model başına alan bunu
-karşılamıyor. Ancak karar kullanıcıya ait.
+**Karar:** Merkezi `AuditLog`. Asıl ihtiyaç "kim oluşturdu" değil,
+**"kim neyi neye çevirdi"**; model başına alan bunu karşılamıyor.
 
-### Uygulama notları (analiz edilecek)
-
-- **Aktör nereden gelir:** `requireAdmin()` zaten oturumu çözüyor; `userId`
-  buradan alınabilir. `lib/dal.ts` incelenmeli.
-- **Nereye yazılır:** İlgili işlemler zaten `db.$transaction` içinde
-  (`/api/cash`, `/api/cash/[id]`, `void`, `debts/payment`, `payouts`).
-  Log satırı aynı transaction'a girmeli — yoksa işlem başarılı olup log
-  yazılmayabilir.
-- **Prisma middleware/extension** ile otomatik yakalama düşünülebilir; ancak
-  aktör bilgisi request bağlamından geldiği için açık çağrı daha öngörülebilir.
-- **`changes` alanı** yalnızca farkı tutmalı; tüm satırı kopyalamak tabloyu
-  hızla şişirir.
+Bu yüzden para modellerinde aktör alanı bilerek YOKTUR. `verify-audit-trail.ts`
+bunu bilgi olarak basar — eksiklik değil, bu kararın sonucudur.
 
 ---
 
-## Karar bekleyen sorular
+## Verilen kararlar
 
-1. **Merkezi `AuditLog` mu, model başına aktör alanı mı?**
-2. **Hangi işlemler kaydedilsin?** (öneri: satış oluştur/düzenle/VOID,
-   tahsilat, hakediş ödemesi, gider — yani para hareketleri)
-3. **Saklama süresi var mı?** Sınırsız büyüme mi, N ay sonra arşiv/silme mi?
-4. **Kim görecek?** Ayrı bir admin ekranı mı, yoksa satış detayında satır içi
-   geçmiş mi?
-5. **Geçmiş veri:** Mevcut kayıtlar için geriye dönük log üretilmeyecek
-   (üretilemez); bu kabul ediliyor mu?
+| Soru | Karar |
+|---|---|
+| Merkezi tablo mu, model başına alan mı? | **Merkezi `AuditLog`** |
+| Hangi işlemler kaydedilsin? | Satış oluştur/düzenle/VOID, tahsilat, hakediş ödemesi, gider, müşteri birleştirme, **işletme açısından kritik** randevu durum geçişleri, randevu silme, ayar değişikliği. Rutin `pending_verification → pending` geçişi KAYDEDİLMEZ — hacimli ve düşük değerli. |
+| Saklama süresi? | **Sınırsız.** Silme/düzenleme ucu bilinçli olarak yoktur: denetim izi değiştirilebilir olsaydı denetim izi olmazdı. |
+| Kim görecek? | **Ayrı admin ekranı** — `/admin/denetim`. Satır içi geçmiş tercih edilmedi. |
+| Geçmiş veri? | **Backfill yapılmadı**, yapılamazdı. Yalnızca bu katman devreye girdikten sonraki işlemler kayıtlı. Kabul edildi. |
 
 ---
 
-## Kapsam dışı ama not edilen
+## Değişmezler
 
-`/api/cash` POST'un **walk-in yolunda** satış ve ödeme defteri satırı
-**transaction dışında** yazılıyor (randevulu yol transaction içinde).
-Ödeme satırı yazılamazsa `Σ(defter) = paidAmount` değişmezi bozulur.
-Sıra 10 başlıklarından biri değil; ayrıca karara bağlanmalı.
+1. Denetim satırı ana işlemle **aynı transaction'da** yazılır.
+2. Denetim yazılamazsa **ana işlem de commit edilmez** — `writeAudit` hatayı
+   yutmaz. Para hareketi denetim izi olmadan kaydedilmez.
+3. `changes` yalnızca **değişen** alanları tutar; komple satır saklanmaz.
+4. Alan seçimi **fail-closed whitelist** ile yapılır (denylist değil).
+
+---
+
+## Sonradan eklenenler
+
+**FAZ 3 · Sıra 3.2 — randevu silme.** `DELETE /api/appointments/[id]` denetim
+izine bağlandı. Randevu silindiğinde `Sale.appointmentId` NULL'a çekildiği için
+bağlı satış id'leri, ilişki koparılmadan **önce** okunup `changes.saleIds`
+içinde saklanır. Satış ayakta kalır; hangi randevudan geldiği yalnızca denetim
+izinde durur.
+
+---
+
+## Sıra 10 kapsamında ayrıca çözülenler
+
+Migration gerektirmeyen dört konu (Sıra 10a): byMethod VOID atfı, pendingKasa,
+indirim görünürlüğü, negatif kalan. Doğrulaması `scripts/verify-audit-trail.ts`
+içinde.
+
+`/api/cash` POST'un **walk-in yolu** da Sıra 10b'de tek transaction'a alındı —
+önceden satış ve ödeme defteri satırı ayrı yazılıyordu ve defter satırı
+yazılamazsa `Σ(defter) = paidAmount` değişmezi bozulabiliyordu.

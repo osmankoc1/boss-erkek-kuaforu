@@ -10,11 +10,29 @@
  *   3. İndirim görünürlüğü— listedPrice − saleAmount raporlanır
  *   4. Negatif kalan      — satış tutarı tahsilatın altına çekilemez
  *
- * ─── HENÜZ AÇIK OLAN İKİ KONU (bilgi amaçlı raporlanır, hata sayılmaz) ───
- *   • Denetim izi (kim yaptı) — migration gerektirir
- *   • Satış düzenleme geçmişi — migration gerektirir
- * Bunlar bilinçli olarak ertelendi; test bunları BİLGİ olarak basar ve
- * başarısızlık saymaz. Bkz. bu dosyanın sonundaki "SONRAKİ ADIM" notu.
+ * ─── DENETİM İZİ: SIRA 10b'DE ÇÖZÜLDÜ ───────────────────────────────────
+ * Bu dosya yazıldığında denetim izi ve satış düzenleme geçmişi HENÜZ YOKTU;
+ * KONU 1 ve KONU 2 blokları o günün eksiğini belgelemek için eklenmişti.
+ * Sıra 10b'de merkezi `AuditLog` tablosu geldi (migration
+ * `20260825094005_audit_log`) ve ikisi de kapandı.
+ *
+ * O blokları bugün BİLGİ amaçlı tutuyoruz — hangi modelde hangi alanın
+ * bulunduğunu göstermek teşhis için hâlâ değerli. Ama artık "eksik" olarak
+ * değil, VERİLMİŞ TASARIM KARARLARI olarak okunmalıdır:
+ *
+ *   • Para modellerinde (`Sale`, `CustomerPayment`, `BarberPayout`,
+ *     `Expense`) aktör alanı YOKTUR — bilinçli. Model başına alan yalnızca
+ *     son değiştireni tutar; "1000'i 700'e kim çekti, önceki değer neydi"
+ *     sorusunu cevaplamaz. Aktör merkezi `AuditLog`'da yaşar.
+ *   • `AuditLog`'un `User`'a FK'sı YOKTUR — bilinçli. Saklama süresi
+ *     sınırsız; kullanıcı silinse bile iz ayakta kalmalı, e-posta o anki
+ *     haliyle snapshot'lanır (bkz. prisma/schema.prisma).
+ *
+ * Denetim izinin GERÇEK doğrulaması bu pakette değil:
+ *   • scripts/verify-audit-log.ts              — 110 kontrol
+ *   • scripts/verify-appointment-delete-audit.ts — 59 kontrol
+ *
+ * Bu paket denetim izini ölçmez; para atfını ölçer.
  *
  * UYARI: Dev veritabanına test verisi yazar ve sonunda siler.
  * Production endpoint'ine karşı çalışmayı reddeder.
@@ -162,7 +180,7 @@ async function main() {
       const govde = sema.split("\n").filter((l) => !l.trim().startsWith("//") && !l.trim().startsWith("///")).join("\n");
 
       const denetimTablosu = /model\s+(Audit|AuditLog|ChangeLog|History)/i.test(govde);
-      console.log(`      denetim/gecmis tablosu       : ${denetimTablosu ? "VAR" : "YOK (ertelendi)"}`);
+      console.log(`      denetim/gecmis tablosu       : ${denetimTablosu ? "VAR (Sira 10b)" : "YOK"}`);
 
       const paraModelleri = ["Sale", "CustomerPayment", "BarberPayout", "Expense"];
       const aktorsuz: string[] = [];
@@ -171,8 +189,8 @@ async function main() {
         const govdeBlok = blok.slice(0, blok.indexOf("\n}"));
         if (!/\b(userId|createdBy|updatedBy|performedBy|actorId)\b/.test(govdeBlok)) aktorsuz.push(m);
       }
-      console.log(`      aktor alani olmayan modeller : ${aktorsuz.join(", ") || "(yok)"}`);
-      console.log(`      User'a baglanan model         : ${/User\s+@relation|user\s+User/.test(govde) ? "VAR" : "YOK (ertelendi)"}`);
+      console.log(`      aktor alani olmayan modeller : ${aktorsuz.join(", ") || "(yok)"}  [tasarim geregi — aktor AuditLog'da]`);
+      console.log(`      User'a baglanan model         : ${/User\s+@relation|user\s+User/.test(govde) ? "VAR" : "YOK  [tasarim geregi — kullanici silinse de iz kalmali]"}`);
 
       // Gercek bir islem yapip iz araniyor.
       const c = await musteri("Aktor");
@@ -180,8 +198,8 @@ async function main() {
       const sale = await db.sale.findUnique({ where: { id: saleId } });
       const alanlar = sale ? Object.keys(sale) : [];
       const izAlani = alanlar.filter((a) => /user|by|actor|admin/i.test(a));
-      console.log(`      Sale'de islemi yapani gosteren alan: ${izAlani.join(", ") || "(yok — ertelendi)"}`);
-      console.log("      NOT: denetim izi migration gerektirir; sonraki adimda ele alinacak.");
+      console.log(`      Sale'de islemi yapani gosteren alan: ${izAlani.join(", ") || "(yok — aktor AuditLog'da tutuluyor)"}`);
+      console.log("      NOT: denetim izi Sira 10b'de geldi; dogrulamasi verify-audit-log.ts icinde.");
     }
 
     // ── KONU 2 — Satış düzenleme geçmişi ─────────────────────────────────
@@ -212,10 +230,21 @@ async function main() {
       const oncekiDegerAlani = /(previous|former|old|onceki|eski)\w*/i.test(saleAlanlari);
       const gecmisTablosu = /model\s+\w*(History|Revision|Version|Audit)\w*\s*\{/i.test(semaGovde);
 
-      console.log(`      onceki-deger alani / gecmis tablosu: ${oncekiDegerAlani || gecmisTablosu ? "VAR" : "YOK (ertelendi)"}`);
-      console.log(`      hakedis ${once?.barberShare} -> ${sonra?.barberShare} (eski deger saklanmiyor — ertelendi)`);
-      console.log(`      not "${once?.note}" -> "${sonra?.note}" (eziliyor — ertelendi)`);
-      console.log("      NOT: duzenleme gecmisi migration gerektirir; sonraki adimda ele alinacak.");
+      console.log(`      onceki-deger alani / gecmis tablosu: ${oncekiDegerAlani || gecmisTablosu ? "VAR" : "YOK"}`);
+
+      // Onceki degerin NEREDE durdugu okunarak yazilir. Sabit metin yazsaydik
+      // Sira 10b'den sonra oldugu gibi yeniden bayatlar ve yanlis bilgi verirdi.
+      const izKaydi = await db.auditLog.findFirst({
+        where: { entity: "Sale", entityId: saleId, action: "UPDATE" },
+        orderBy: { createdAt: "desc" },
+      });
+      const izDegisim = (izKaydi?.changes ?? {}) as Record<string, { before: unknown; after: unknown }>;
+      const goster = (alan: string) =>
+        alan in izDegisim ? `AuditLog'da: ${izDegisim[alan].before} -> ${izDegisim[alan].after}` : "AuditLog'da YOK";
+
+      console.log(`      hakedis ${once?.barberShare} -> ${sonra?.barberShare}   (${goster("barberShare")})`);
+      console.log(`      not "${once?.note}" -> "${sonra?.note}"   (${goster("note")})`);
+      console.log("      NOT: duzenleme gecmisi Sira 10b'de geldi; onceki deger AuditLog.changes icinde.");
 
       // AYRI senaryo: satis tutari, tahsil edilmis paranin ALTINA cekilirse.
       const c3 = await musteri("Negatif");
@@ -412,6 +441,29 @@ async function main() {
       console.log(`      indirim gosteren ekranlar: ${ekranlar.map((f) => f.split("/").slice(-2).join("/")).join(", ")}`);
       check(`Indirim ekranlarda GOSTERILIYOR (${tsx.length} tsx tarandi)`,
         ekranlar.length >= 2, `${ekranlar.length} ekran — kasa ve gun sonu bekleniyordu`);
+    }
+
+    // ── KONU 6 — Bu dosyanin kendi metni bayat mi (FAZ 3 · Sira 3.4) ──────
+    //
+    // Bu paket bir donem denetim izini EKSIK olarak raporluyordu. Sira 10b'de
+    // AuditLog gelince o sabit metin yanlis bilgiye donustu ve gercekten yanlis
+    // bir karara yol acti: FAZ 2 kapanis raporunda "satis duzenleme gecmisi
+    // yok" yazildi. Asagidaki liste o metinlerin izini surer; her ifade
+    // yalnizca listenin KENDISINDE gecebilir, baska hicbir yerde.
+    console.log("\nKONU 6 — Bu dosyanin metni guncel mi");
+    {
+      const kendisi = readFileSync("scripts/verify-audit-trail.ts", "utf8");
+      const bayatIfadeler = ["ertelendi", "sonraki adimda ele alinacak", "eski deger saklanmiyor"];
+      for (const ifade of bayatIfadeler) {
+        // Bu kontrolun KENDI listesi haric hicbir yerde gecmemeli.
+        const gecisSayisi = kendisi.split(ifade).length - 1;
+        check(`"${ifade}" ifadesi dosyada YOK`, gecisSayisi <= 1, `${gecisSayisi} kez geciyor`);
+      }
+      check(
+        "Denetim izinin gercek dogrulamasi isaret ediliyor",
+        kendisi.includes("verify-audit-log.ts"),
+        "yonlendirme yok"
+      );
     }
   } finally {
     console.log("\nTEMIZLIK...");
